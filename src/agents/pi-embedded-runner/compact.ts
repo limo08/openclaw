@@ -942,6 +942,12 @@ export async function compactEmbeddedPiSessionDirect(
                 sessionKey: hookSessionKey,
                 workspaceDir: effectiveWorkspace,
                 messageProvider: resolvedMessageProvider,
+                senderId: params.senderId ?? null,
+                senderName: params.senderName ?? null,
+                senderIsOwner: params.senderIsOwner,
+                groupId: params.groupId ?? null,
+                spawnedBy: params.spawnedBy ?? null,
+                sourceProvider: params.sourceProvider,
               },
             );
           } catch (err) {
@@ -1082,6 +1088,12 @@ export async function compactEmbeddedPiSessionDirect(
                 sessionKey: hookSessionKey,
                 workspaceDir: effectiveWorkspace,
                 messageProvider: resolvedMessageProvider,
+                senderId: params.senderId ?? null,
+                senderName: params.senderName ?? null,
+                senderIsOwner: params.senderIsOwner,
+                groupId: params.groupId ?? null,
+                spawnedBy: params.spawnedBy ?? null,
+                sourceProvider: params.sourceProvider,
               },
             );
           } catch (err) {
