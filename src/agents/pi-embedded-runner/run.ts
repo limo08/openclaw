@@ -1165,6 +1165,7 @@ export async function runEmbeddedPiAgent(
                       skillsSnapshot: params.skillsSnapshot,
                       senderIsOwner: params.senderIsOwner,
                       senderId: params.senderId,
+                      senderName: params.senderName,
                       provider,
                       modelId,
                       thinkLevel,
