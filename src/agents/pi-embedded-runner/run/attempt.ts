@@ -2589,6 +2589,7 @@ export async function runEmbeddedAttempt(
               .runContextAssembled(
                 {
                   systemPrompt: systemPromptText,
+                  prompt: effectivePrompt,
                   messages: activeSession.messages,
                   messageCount: activeSession.messages.length,
                   iteration: 1,
