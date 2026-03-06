@@ -2605,6 +2605,7 @@ export async function runEmbeddedAttempt(
             hookRunner
               .runContextAssembled(
                 {
+                  runId: params.runId,
                   systemPrompt: systemPromptText,
                   prompt: effectivePrompt,
                   messages: contextMessagesSnapshot,
