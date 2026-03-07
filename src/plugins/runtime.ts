@@ -1,6 +1,43 @@
 import { createEmptyPluginRegistry } from "./registry-empty.js";
 import type { PluginRegistry } from "./registry.js";
 
+export type CapabilityFilter<T extends string> = (cap: string) => cap is T;
+
+export type PluginProviderEntry = {
+  id: string;
+  routingCapabilities?: string[];
+  [key: string]: unknown;
+};
+
+export type ProviderMapper<T> = (provider: PluginProviderEntry) => T | undefined;
+
+export function getPluginProvidersByCapability<T extends { id: string }>(
+  capabilityFilter: CapabilityFilter<string>,
+  mapper: ProviderMapper<T>,
+): Record<string, T> {
+  const registry = getActivePluginRegistry();
+  if (!registry) {
+    return {};
+  }
+
+  const providers: Record<string, T> = {};
+  for (const entry of registry.providers) {
+    const p = entry.provider;
+    // Guard against object-shaped capabilities (e.g., { providerFamily: "openai" })
+    const caps = p.routingCapabilities;
+    const capabilitiesArray = Array.isArray(caps) ? caps : [];
+    const hasCapability = capabilitiesArray.some(capabilityFilter);
+    if (!hasCapability) {
+      continue;
+    }
+    const mapped = mapper(p);
+    if (mapped) {
+      providers[mapped.id] = mapped;
+    }
+  }
+  return providers;
+}
+
 const REGISTRY_STATE = Symbol.for("openclaw.pluginRegistryState");
 
 type RegistryState = {

@@ -322,16 +322,109 @@ Plugins export either:
 - `registerContextEngine`
 - `registerService`
 
-See [Plugin manifest](/plugins/manifest) for the manifest file format.
+### Register a provider with capabilities
 
-## Further reading
+Plugins can register **providers** that declare capabilities for chat, embeddings,
+media (ASR, TTS, image, video), or other AI services. Use the `capabilities` array
+to declare what the provider supports.
 
-- [Plugin architecture and internals](/plugins/architecture) -- capability model,
-  ownership model, contracts, load pipeline, runtime helpers, and developer API
-  reference
-- [Building extensions](/plugins/building-extensions)
-- [Plugin bundles](/plugins/bundles)
-- [Plugin manifest](/plugins/manifest)
-- [Plugin agent tools](/plugins/agent-tools)
-- [Capability Cookbook](/tools/capability-cookbook)
-- [Community plugins](/plugins/community)
+```ts
+api.registerProvider({
+  id: "my-tts",
+  label: "My TTS",
+  capabilities: ["tts", "embedding"], // "chat" | "embedding" | "audio" | "image" | "video" | "tts"
+  textToSpeech: async (req) => {
+    // req.text: string to synthesize
+    // req.model?: string
+    // req.voice?: string
+    // req.apiKey: string
+    // req.baseUrl?: string
+    // req.timeoutMs: number
+    // req.fetchFn?: typeof fetch
+
+    // Return audio buffer and MIME type
+    return {
+      audio: Buffer.from(/* audio data */),
+      mime: "audio/mp3",
+      sampleRate: 24000, // optional, required for telephony
+    };
+  },
+  embed: async (req) => {
+    // req.text: string to embed
+    // req.model?: string
+    // req.apiKey: string
+    // req.baseUrl?: string
+    // req.timeoutMs: number
+    // req.fetchFn?: typeof fetch
+
+    return {
+      embedding: [0.1, 0.2 /* ... */],
+      model: req.model,
+    };
+  },
+  embedBatch: async (req) => {
+    // req.texts: strings to embed
+    // req.model?: string
+    // req.apiKey: string
+    // req.baseUrl?: string
+    // req.timeoutMs: number
+    // req.fetchFn?: typeof fetch
+
+    return {
+      embeddings: req.texts.map(() => [0.1, 0.2 /* ... */]),
+      model: req.model,
+    };
+  },
+  embedBatchInputs: async (req) => {
+    // req.inputs: array of { text?: string, parts?: ... }
+    // req.model?: string
+    // req.apiKey: string
+    // req.baseUrl?: string
+    // req.timeoutMs: number
+    // req.fetchFn?: typeof fetch
+
+    return {
+      embeddings: req.inputs.map(() => [0.1, 0.2 /* ... */]),
+      model: req.model,
+    };
+  },
+  transcribeAudio: async (req) => {
+    // req.buffer: audio data
+    // req.mime: MIME type
+    // req.apiKey: string
+    // req.baseUrl?: string
+    // req.timeoutMs: number
+
+    return { text: "transcribed text", model: req.model };
+  },
+  describeImage: async (req) => {
+    // req.buffer: image data
+    // req.mime: MIME type
+    // req.prompt?: string
+    // req.apiKey: string
+    // req.baseUrl?: string
+    // req.timeoutMs: number
+
+    return { text: "image description", model: req.model };
+  },
+  describeVideo: async (req) => {
+    // req.buffer: video data
+    // req.mime: MIME type
+    // req.prompt?: string
+    // req.apiKey: string
+    // req.baseUrl?: string
+    // req.timeoutMs: number
+
+    return { text: "video description", model: req.model };
+  },
+});
+```
+
+#### Provider order
+
+Notes:
+
+- Declare which capabilities your provider supports in the `capabilities` array.
+- Implement only the methods for capabilities you support.
+- Providers are tried in this order: user's configured provider → built-in providers → other plugin providers.
+- For TTS, return `sampleRate` in the result if your provider will be used for telephony (voice calls).

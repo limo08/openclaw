@@ -1,4 +1,9 @@
-import type { PluginDiagnostic, ProviderAuthMethod, ProviderPlugin } from "./types.js";
+import type {
+  PluginDiagnostic,
+  ProviderAuthMethod,
+  ProviderPlugin,
+  ProviderCapability,
+} from "./types.js";
 
 function pushProviderDiagnostic(params: {
   level: PluginDiagnostic["level"];
@@ -283,12 +288,16 @@ export function normalizeRegisteredProvider(params: {
     envVars: _ignoredEnvVars,
     catalog: _ignoredCatalog,
     discovery: _ignoredDiscovery,
+    routingCapabilities: _routingCapabilities,
     ...restProvider
   } = params.provider;
+  // Map legacy `capabilities` field to `routingCapabilities` for compatibility
+  const legacyCaps = (params.provider as { capabilities?: string[] }).capabilities;
   return {
     ...restProvider,
     id,
     label: normalizeText(params.provider.label) ?? id,
+    routingCapabilities: _routingCapabilities ?? (legacyCaps as ProviderCapability[]),
     ...(docsPath ? { docsPath } : {}),
     ...(aliases ? { aliases } : {}),
     ...(deprecatedProfileIds ? { deprecatedProfileIds } : {}),
