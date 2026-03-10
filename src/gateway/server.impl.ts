@@ -1099,6 +1099,7 @@ export async function startGatewayServer(
     markChannelLoggedOut,
     wizardRunner,
     broadcastVoiceWakeChanged,
+    broadcastVoiceWakeRoutingChanged,
   };
 
   // Store the gateway context as a fallback for plugin subagent dispatch
