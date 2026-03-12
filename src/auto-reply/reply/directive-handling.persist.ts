@@ -19,6 +19,7 @@ import { resolveModelSelectionFromDirective } from "./directive-handling.model.j
 import type { InlineDirectives } from "./directive-handling.parse.js";
 import { enqueueModeSwitchEvents } from "./directive-handling.shared.js";
 import type { ElevatedLevel, ReasoningLevel } from "./directives.js";
+import { maybeBlockOversizedModelSwitch } from "./model-switch-guard.js";
 
 export async function persistInlineDirectives(params: {
   directives: InlineDirectives;
@@ -153,24 +154,37 @@ export async function persistInlineDirectives(params: {
         provider,
       });
       if (modelResolution.modelSelection) {
-        const { updated: modelUpdated } = applyModelOverrideToSessionEntry({
-          entry: sessionEntry,
-          selection: modelResolution.modelSelection,
-          profileOverride: modelResolution.profileOverride,
+        const blockedModelSwitchText = maybeBlockOversizedModelSwitch({
+          cfg,
+          sessionEntry,
+          currentProvider: provider,
+          currentModel: model,
+          targetProvider: modelResolution.modelSelection.provider,
+          targetModel: modelResolution.modelSelection.model,
         });
-        provider = modelResolution.modelSelection.provider;
-        model = modelResolution.modelSelection.model;
-        const nextLabel = `${provider}/${model}`;
-        if (nextLabel !== initialModelLabel) {
-          enqueueSystemEvent(
-            formatModelSwitchEvent(nextLabel, modelResolution.modelSelection.alias),
-            {
-              sessionKey,
-              contextKey: `model:${nextLabel}`,
-            },
-          );
+        // The fast-lane `/model` path already returns the user-facing error.
+        // Keep persistence aligned so inline directives cannot write the
+        // blocked selection into the session store afterward.
+        if (!blockedModelSwitchText) {
+          const { updated: modelUpdated } = applyModelOverrideToSessionEntry({
+            entry: sessionEntry,
+            selection: modelResolution.modelSelection,
+            profileOverride: modelResolution.profileOverride,
+          });
+          provider = modelResolution.modelSelection.provider;
+          model = modelResolution.modelSelection.model;
+          const nextLabel = `${provider}/${model}`;
+          if (nextLabel !== initialModelLabel) {
+            enqueueSystemEvent(
+              formatModelSwitchEvent(nextLabel, modelResolution.modelSelection.alias),
+              {
+                sessionKey,
+                contextKey: `model:${nextLabel}`,
+              },
+            );
+          }
+          updated = updated || modelUpdated;
         }
-        updated = updated || modelUpdated;
       }
     }
     if (directives.hasQueueDirective && directives.queueReset) {
