@@ -538,41 +538,28 @@ export function resolveTelegramTransport(
     let err: unknown;
 
     try {
-      return await sourceFetch(
-        input,
-        withDispatcherIfMissing(init, transportAttempts[startIndex].createDispatcher()),
-      );
-    } catch (caught) {
-      err = caught;
-    }
-
-    if (!shouldUseTelegramTransportFallback(err)) {
-      throw err;
-    }
-    if (callerProvidedDispatcher) {
-      return sourceFetch(input, init ?? {});
-    }
-
-    for (let nextIndex = startIndex + 1; nextIndex < transportAttempts.length; nextIndex += 1) {
-      const nextAttempt = transportAttempts[nextIndex];
-      if (nextAttempt.logMessage) {
-        log.warn(`${nextAttempt.logMessage} (codes=${formatErrorCodes(err)})`);
-      }
-      try {
-        const response = await sourceFetch(
-          input,
-          withDispatcherIfMissing(init, nextAttempt.createDispatcher()),
-        );
-        stickyAttemptIndex = nextIndex;
-        return response;
-      } catch (caught) {
-        err = caught;
-        if (!shouldUseTelegramTransportFallback(err)) {
+      return await sourceFetch(input, initialInit);
+    } catch (err) {
+      if (shouldRetryWithIpv4Fallback(err)) {
+        // Preserve caller-owned dispatchers on retry.
+        if (callerProvidedDispatcher) {
+          return sourceFetch(input, init ?? {});
+        }
+        // Proxy routes should not arm sticky IPv4 mode; `family=4` would constrain
+        // proxy-connect behavior instead of Telegram endpoint selection.
+        if (!allowStickyIpv4Fallback) {
           throw err;
         }
+        if (!stickyIpv4FallbackEnabled) {
+          stickyIpv4FallbackEnabled = true;
+          log.info(
+            `fetch fallback: enabling sticky IPv4-only dispatcher (codes=${formatErrorCodes(err)})`,
+          );
+        }
+        return sourceFetch(input, withDispatcherIfMissing(init, resolveStickyIpv4Dispatcher()));
       }
+      throw err;
     }
-
     throw err;
   }) as typeof fetch;
 
