@@ -1,6 +1,4 @@
 import { collectTextContentBlocks } from "../../agents/content-blocks.js";
-import { createOpenClawTools } from "../../agents/openclaw-tools.js";
-import type { BlockReplyChunking } from "../../agents/pi-embedded-block-chunker.js";
 import type { SkillCommandSpec } from "../../agents/skills.js";
 import { applyOwnerOnlyToolPolicy } from "../../agents/tool-policy.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
@@ -216,6 +214,8 @@ export async function handleInlineActions(params: {
         resolveGatewayMessageChannel(ctx.Provider) ??
         undefined;
 
+      // Delay the full tool registry import until a slash command actually dispatches a tool.
+      const { createOpenClawTools } = await import("../../agents/openclaw-tools.runtime.js");
       const tools = createOpenClawTools({
         agentSessionKey: sessionKey,
         agentChannel: channel,
