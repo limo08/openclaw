@@ -36,12 +36,6 @@ function installTmpDirHarness(params: { prefix: string }) {
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), params.prefix));
-describe("memory plugin e2e", () => {
-  let tmpDir: string;
-  let dbPath: string;
-
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-test-"));
     dbPath = path.join(tmpDir, "lancedb");
   });
 
@@ -58,7 +52,7 @@ describe("memory plugin e2e", () => {
 }
 
 describe("memory plugin e2e", () => {
-  const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-test-" });
+  const { getDbPath, getTmpDir } = installTmpDirHarness({ prefix: "openclaw-memory-test-" });
 
   async function parseConfig(overrides: Record<string, unknown> = {}) {
     const { default: memoryPlugin } = await import("./index.js");
@@ -86,14 +80,6 @@ describe("memory plugin e2e", () => {
 
   test("config schema parses valid config", async () => {
     const config = await parseConfig({
-    const { default: memoryPlugin } = await import("./index.js");
-
-    const config = memoryPlugin.configSchema?.parse?.({
-      embedding: {
-        apiKey: OPENAI_API_KEY,
-        model: "text-embedding-3-small",
-      },
-      dbPath,
       autoCapture: true,
       autoRecall: true,
     });
@@ -101,7 +87,6 @@ describe("memory plugin e2e", () => {
     expect(config).toBeDefined();
     expect(config?.embedding?.apiKey).toBe(OPENAI_API_KEY);
     expect(config?.dbPath).toBe(getDbPath());
-    expect(config?.dbPath).toBe(dbPath);
     expect(config?.captureMaxChars).toBe(500);
   });
 
@@ -130,7 +115,6 @@ describe("memory plugin e2e", () => {
       memoryPlugin.configSchema?.parse?.({
         embedding: {},
         dbPath: getDbPath(),
-        dbPath,
       });
     }).toThrow("embedding.apiKey is required");
   });
@@ -142,7 +126,6 @@ describe("memory plugin e2e", () => {
       memoryPlugin.configSchema?.parse?.({
         embedding: { apiKey: OPENAI_API_KEY },
         dbPath: getDbPath(),
-        dbPath,
         captureMaxChars: 99,
       });
     }).toThrow("captureMaxChars must be between 100 and 10000");
@@ -150,14 +133,6 @@ describe("memory plugin e2e", () => {
 
   test("config schema accepts captureMaxChars override", async () => {
     const config = await parseConfig({
-    const { default: memoryPlugin } = await import("./index.js");
-
-    const config = memoryPlugin.configSchema?.parse?.({
-      embedding: {
-        apiKey: OPENAI_API_KEY,
-        model: "text-embedding-3-small",
-      },
-      dbPath,
       captureMaxChars: 1800,
     });
 
@@ -166,15 +141,6 @@ describe("memory plugin e2e", () => {
 
   test("config schema keeps autoCapture disabled by default", async () => {
     const config = await parseConfig();
-    const { default: memoryPlugin } = await import("./index.js");
-
-    const config = memoryPlugin.configSchema?.parse?.({
-      embedding: {
-        apiKey: OPENAI_API_KEY,
-        model: "text-embedding-3-small",
-      },
-      dbPath,
-    });
 
     expect(config?.autoCapture).toBe(false);
     expect(config?.autoRecall).toBe(true);
@@ -222,7 +188,6 @@ describe("memory plugin e2e", () => {
             dimensions: 1024,
           },
           dbPath: getDbPath(),
-          dbPath,
           autoCapture: false,
           autoRecall: false,
         },
@@ -434,7 +399,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -516,15 +481,15 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
 
-      // Use tmpDir for audit log by temporarily pointing homedir there
+      // Use getTmpDir() for audit log by temporarily pointing homedir there
       const originalHome = process.env.HOME;
-      process.env.HOME = tmpDir;
+      process.env.HOME = getTmpDir();
 
       // oxlint-disable-next-line typescript/no-explicit-any
       let result: any;
       try {
         const mockApi = buildMockApi({
-          dbPath,
+          dbPath: getDbPath(),
           embeddingsCreate,
           vectorSearch,
           queryWhere,
@@ -570,7 +535,7 @@ describe("memory plugin e2e", () => {
       expect(addCall.importance).toBe(0.9);
 
       // Check audit log was written
-      auditLogPath = `${tmpDir}/.openclaw/memory/refresh-audit.jsonl`;
+      auditLogPath = `${getTmpDir()}/.openclaw/memory/refresh-audit.jsonl`;
       const auditContent = await import("node:fs/promises").then((fs) =>
         fs.readFile(auditLogPath!, "utf8").catch(() => null),
       );
@@ -627,7 +592,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -719,7 +684,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -817,7 +782,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -896,7 +861,7 @@ describe("memory plugin e2e", () => {
       // oxlint-disable-next-line typescript/no-explicit-any
       const registeredTools: any[] = [];
       const mockApi = buildMockApi({
-        dbPath,
+        dbPath: getDbPath(),
         embeddingsCreate,
         vectorSearch,
         queryWhere,
@@ -930,24 +895,111 @@ describe("memory plugin e2e", () => {
       vi.resetModules();
     }
   });
-});
 
-// Live tests that require OpenAI API key and actually use LanceDB
-describeLive("memory plugin live tests", () => {
-  const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-live-" });
-  let tmpDir: string;
-  let dbPath: string;
+  test("memory_refresh concurrent replace calls on same ID serialize: operations do not interleave", async () => {
+    const existingId = "ffffffff-0000-0000-0000-000000000001";
+    const existingEntry = {
+      id: existingId,
+      text: "Original text",
+      vector: [0.1, 0.2, 0.3],
+      importance: 0.7,
+      category: "fact",
+      createdAt: 1000,
+    };
 
-  beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-memory-live-"));
-    dbPath = path.join(tmpDir, "lancedb");
-  });
+    // Track the order of DB operations across both concurrent calls.
+    const callLog: string[] = [];
 
-  afterEach(async () => {
-    if (tmpDir) {
-      await fs.rm(tmpDir, { recursive: true, force: true });
+    const embeddingsCreate = vi.fn(async () => ({
+      data: [{ embedding: [0.1, 0.2, 0.3] }],
+    }));
+
+    // Static mock: getById always returns the same entry regardless of prior
+    // deletes — this lets both calls succeed so we can assert the op order.
+    const toArray = vi.fn(async () => [existingEntry]);
+    const queryWhere = vi.fn(() => ({ toArray }));
+    const vectorSearch = vi.fn(() => ({
+      limit: vi.fn(() => ({ toArray: vi.fn(async () => []) })),
+    }));
+
+    // tableDelete introduces a small async gap so that without the mutex the
+    // two calls' delete operations would both complete before either add fires,
+    // producing the interleaved log ["delete","delete","add","add"].
+    // With the mutex the expected log is ["delete","add","delete","add"].
+    const tableDelete = vi.fn(async () => {
+      callLog.push("delete");
+      await new Promise<void>((r) => setTimeout(r, 5));
+    });
+    const tableAdd = vi.fn(async () => {
+      callLog.push("add");
+    });
+
+    vi.resetModules();
+    vi.doMock("openai", () => ({
+      default: class MockOpenAI {
+        embeddings = { create: embeddingsCreate };
+      },
+    }));
+    vi.doMock("@lancedb/lancedb", () => ({
+      connect: vi.fn(async () => ({
+        tableNames: vi.fn(async () => ["memories"]),
+        openTable: vi.fn(async () => ({
+          vectorSearch,
+          query: vi.fn(() => ({ where: queryWhere })),
+          countRows: vi.fn(async () => 1),
+          add: tableAdd,
+          delete: tableDelete,
+        })),
+      })),
+    }));
+
+    try {
+      const { default: memoryPlugin } = await import("./index.js");
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const registeredTools: any[] = [];
+      const mockApi = buildMockApi({
+        dbPath: getDbPath(),
+        embeddingsCreate,
+        vectorSearch,
+        queryWhere,
+        tableAdd,
+        tableDelete,
+        registeredTools,
+      });
+      // oxlint-disable-next-line typescript/no-explicit-any
+      memoryPlugin.register(mockApi as any);
+
+      const refreshTool = registeredTools.find((t) => t.opts?.name === "memory_refresh")?.tool;
+      expect(refreshTool).toBeDefined();
+
+      // Fire two replace calls simultaneously on the same memoryId.
+      const [result1, result2] = await Promise.all([
+        refreshTool.execute("concurrent-call-1", { text: "Update A", memoryId: existingId }),
+        refreshTool.execute("concurrent-call-2", { text: "Update B", memoryId: existingId }),
+      ]);
+
+      // Both calls must complete without throwing (promises resolve, not reject).
+      expect(result1).toBeDefined();
+      expect(result2).toBeDefined();
+
+      // Both succeed because the static mock always returns the entry.
+      expect(result1.details.operation).toBe("replaced");
+      expect(result2.details.operation).toBe("replaced");
+
+      // Serialized pattern: delete, add, delete, add.
+      // Interleaved (racy) pattern would be: delete, delete, add, add.
+      // The mutex guarantees the former.
+      expect(callLog).toEqual(["delete", "add", "delete", "add"]);
+    } finally {
+      vi.doUnmock("openai");
+      vi.doUnmock("@lancedb/lancedb");
+      vi.resetModules();
     }
   });
+});
+
+describeLive("memory plugin live tests", () => {
+  const { getDbPath } = installTmpDirHarness({ prefix: "openclaw-memory-live-" });
 
   test("memory tools work end-to-end", async () => {
     const { default: memoryPlugin } = await import("./index.js");
@@ -975,7 +1027,6 @@ describeLive("memory plugin live tests", () => {
           model: "text-embedding-3-small",
         },
         dbPath: getDbPath(),
-        dbPath,
         autoCapture: false,
         autoRecall: false,
       },
@@ -1017,11 +1068,6 @@ describeLive("memory plugin live tests", () => {
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_recall");
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_store");
     expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_forget");
-    expect(registeredTools.length).toBe(4);
-    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_recall");
-    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_store");
-    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_forget");
-    expect(registeredTools.map((t) => t.opts?.name)).toContain("memory_refresh");
     expect(registeredClis.length).toBe(1);
     expect(registeredServices.length).toBe(1);
 
