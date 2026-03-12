@@ -2,6 +2,11 @@ export {
   buildBytePlusCodingProvider,
   buildBytePlusProvider,
 } from "../../extensions/byteplus/provider-catalog.js";
+export {
+  ERNIE_BASE_URL,
+  ERNIE_DEFAULT_MODEL_ID,
+  buildErnieProvider,
+} from "../../extensions/ernie/provider-catalog.js";
 export { buildKimiCodingProvider } from "../../extensions/kimi-coding/provider-catalog.js";
 export { buildKilocodeProvider } from "../../extensions/kilocode/provider-catalog.js";
 export {

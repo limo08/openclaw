@@ -116,6 +116,10 @@
       "destination": "/providers/qianfan"
     },
     {
+      "source": "/ernie",
+      "destination": "/providers/ernie"
+    },
+    {
       "source": "/mattermost",
       "destination": "/channels/mattermost"
     },
@@ -1119,6 +1123,7 @@
                   "providers/opencode",
                   "providers/openrouter",
                   "providers/perplexity-provider",
+                  "providers/ernie",
                   "providers/qianfan",
                   "providers/qwen",
                   "providers/sglang",
