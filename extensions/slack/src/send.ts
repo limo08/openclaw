@@ -45,7 +45,7 @@ export type SlackSendIdentity = {
   iconEmoji?: string;
 };
 
-type SlackSendOpts = {
+export type SlackSendOpts = {
   cfg?: OpenClawConfig;
   token?: string;
   accountId?: string;
@@ -135,6 +135,12 @@ export type SlackSendResult = {
   messageId: string;
   channelId: string;
 };
+
+export type SlackSendFn = (
+  to: string,
+  message: string,
+  opts?: SlackSendOpts,
+) => Promise<SlackSendResult>;
 
 function resolveToken(params: {
   explicit?: string;
@@ -250,11 +256,11 @@ async function uploadSlackFile(params: {
   return uploadUrlResp.file_id;
 }
 
-export async function sendMessageSlack(
+export const sendMessageSlack: SlackSendFn = async (
   to: string,
   message: string,
   opts: SlackSendOpts = {},
-): Promise<SlackSendResult> {
+): Promise<SlackSendResult> => {
   const trimmedMessage = message?.trim() ?? "";
   if (isSilentReplyText(trimmedMessage) && !opts.mediaUrl && !opts.blocks) {
     logVerbose("slack send: suppressed NO_REPLY token before API call");
@@ -356,4 +362,4 @@ export async function sendMessageSlack(
     messageId: lastMessageId || "unknown",
     channelId,
   };
-}
+};
