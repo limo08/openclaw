@@ -290,7 +290,7 @@ function shouldPreferHostForProfile(profileName: string | undefined) {
     return false;
   }
   const capabilities = getBrowserProfileCapabilities(profile);
-  return capabilities.usesChromeMcp;
+  return capabilities.requiresRelay || capabilities.usesChromeMcp;
 }
 
 export function createBrowserTool(opts?: {
@@ -326,7 +326,7 @@ export function createBrowserTool(opts?: {
       if (requestedNode && target && target !== "node") {
         throw new Error('node is only supported with target="node".');
       }
-      // User-browser profiles (existing-session) are host-only.
+      // User-browser profiles (existing-session, extension relay) are host-only.
       const isUserBrowserProfile = shouldPreferHostForProfile(profile);
       if (isUserBrowserProfile) {
         if (requestedNode || target === "node") {

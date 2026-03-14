@@ -1,9 +1,7 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { browserAct, browserConsoleMessages } from "../../browser/client-actions.js";
 import { browserSnapshot, browserTabs } from "../../browser/client.js";
-import { resolveBrowserConfig, resolveProfile } from "../../browser/config.js";
 import { DEFAULT_AI_SNAPSHOT_MAX_CHARS } from "../../browser/constants.js";
-import { getBrowserProfileCapabilities } from "../../browser/profile-capabilities.js";
 import { loadConfig } from "../../config/config.js";
 import { wrapExternalContent } from "../../security/external-content.js";
 import { imageResultFromFile, jsonResult } from "./common.js";
@@ -76,17 +74,7 @@ function formatConsoleToolResult(result: {
 }
 
 function isChromeStaleTargetError(profile: string | undefined, err: unknown): boolean {
-  if (!profile) {
-    return false;
-  }
-  if (profile === "user") {
-    const msg = String(err);
-    return msg.includes("404:") && msg.includes("tab not found");
-  }
-  const cfg = loadConfig();
-  const resolved = resolveBrowserConfig(cfg.browser, cfg);
-  const browserProfile = resolveProfile(resolved, profile);
-  if (!browserProfile || !getBrowserProfileCapabilities(browserProfile).usesChromeMcp) {
+  if (profile !== "chrome-relay" && profile !== "chrome" && profile !== "user") {
     return false;
   }
   const msg = String(err);
