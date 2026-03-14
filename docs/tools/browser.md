@@ -328,7 +328,7 @@ Built-in profile:
 Optional: create your own custom existing-session profile if you want a
 different name, color, or browser data directory.
 
-Desktop attach flow:
+Then in Chrome:
 
 - The built-in `user` profile uses Chrome MCP auto-connect, which targets the
   default local Google Chrome profile.
@@ -379,7 +379,7 @@ What success looks like:
 - `tabs` lists your already-open browser tabs
 - `snapshot` returns refs from the selected live tab
 
-What to check if desktop attach does not work:
+What to check if attach does not work:
 
 - the target Chromium-based browser is version `144+`
 - remote debugging is enabled in that browser's inspect page
@@ -388,51 +388,15 @@ What to check if desktop attach does not work:
   Chrome is installed locally for default auto-connect profiles, but it cannot
   enable browser-side remote debugging for you
 
-Headless / Linux / VPS flow:
-
-- Set `browser.headless: true`
-- Set `browser.noSandbox: true` when running as root or in common container/VPS setups
-- Optional: set `browser.executablePath` to a stable Chrome/Chromium binary path
-- Optional: set `browser.profiles.<name>.cdpUrl` on an `existing-session` profile to an
-  MCP target like `http://127.0.0.1:9222` or
-  `ws://127.0.0.1:9222/devtools/browser/<id>`
-
-Example:
-
-```json5
-{
-  browser: {
-    headless: true,
-    noSandbox: true,
-    executablePath: "/usr/bin/google-chrome-stable",
-    defaultProfile: "user",
-    profiles: {
-      user: {
-        driver: "existing-session",
-        cdpUrl: "http://127.0.0.1:9222",
-        color: "#00AA00",
-      },
-    },
-  },
-}
-```
-
-Behavior:
-
-- without `browser.profiles.<name>.cdpUrl`, headless `existing-session` launches Chrome through MCP
-- with `browser.profiles.<name>.cdpUrl`, MCP connects to that running browser URL
-- non-headless `existing-session` keeps using the interactive `--autoConnect` flow
-
 Agent use:
 
 - Use `profile="user"` when you need the user’s logged-in browser state.
 - If you use a custom existing-session profile, pass that explicit profile name.
 - Prefer `profile="user"` over `profile="chrome-relay"` unless the user
   explicitly wants the extension / attach-tab flow.
-- On desktop `--autoConnect`, only choose this mode when the user is at the
-  computer to approve the attach prompt.
-- The Gateway or node host can spawn `npx chrome-devtools-mcp@latest --autoConnect`
-  for desktop attach, or use MCP headless/browserUrl/wsEndpoint modes for Linux/VPS paths.
+- Only choose this mode when the user is at the computer to approve the attach
+  prompt.
+- the Gateway or node host can spawn `npx chrome-devtools-mcp@latest --autoConnect`
 
 Notes:
 

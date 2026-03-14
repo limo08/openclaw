@@ -324,11 +324,7 @@ export function resolveProfile(
   const driver = profile.driver === "existing-session" ? "existing-session" : "openclaw";
 
   if (driver === "existing-session") {
-    const parsed = rawProfileUrl
-      ? parseHttpUrl(rawProfileUrl, `browser.profiles.${profileName}.cdpUrl`)
-      : null;
-    // existing-session uses Chrome MCP. It can either auto-connect to a local desktop
-    // session or connect to a debuggable browser URL/WS endpoint when explicitly configured.
+    // existing-session uses Chrome MCP auto-connect; no CDP port/URL needed
     return {
       name: profileName,
       cdpPort: 0,

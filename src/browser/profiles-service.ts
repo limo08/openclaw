@@ -128,19 +128,15 @@ export function createBrowserProfilesService(ctx: BrowserRouteContext) {
         throw new BrowserValidationError(String(err));
       }
       if (driver === "existing-session") {
-        profileConfig = {
-          cdpUrl: parsed.normalized,
-          driver,
-          attachOnly: true,
-          color: profileColor,
-        };
-      } else {
-        profileConfig = {
-          cdpUrl: parsed.normalized,
-          ...(driver ? { driver } : {}),
-          color: profileColor,
-        };
+        throw new BrowserValidationError(
+          "driver=existing-session does not accept cdpUrl; it attaches via the Chrome MCP auto-connect flow",
+        );
       }
+      profileConfig = {
+        cdpUrl: parsed.normalized,
+        ...(driver ? { driver } : {}),
+        color: profileColor,
+      };
     } else {
       if (driver === "existing-session") {
         // existing-session uses Chrome MCP auto-connect; no CDP port needed
