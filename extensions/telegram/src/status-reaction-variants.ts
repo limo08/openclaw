@@ -56,6 +56,7 @@ const TELEGRAM_SUPPORTED_REACTION_EMOJIS = new Set<string>([
   "😇",
   "😨",
   "🤝",
+  "✅",
   "✍",
   "🤗",
   "🫡",
