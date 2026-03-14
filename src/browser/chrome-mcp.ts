@@ -4,8 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { loadConfig } from "../config/config.js";
 import type { ChromeMcpSnapshotNode } from "./chrome-mcp.snapshot.js";
+import { resolveOpenClawUserDataDir } from "./chrome.js";
 import type { BrowserTab } from "./client.js";
+import { resolveBrowserConfig, resolveProfile } from "./config.js";
 import { BrowserProfileUnavailableError, BrowserTabNotFoundError } from "./errors.js";
 
 type ChromeMcpStructuredPage = {
@@ -35,7 +38,6 @@ const DEFAULT_CHROME_MCP_COMMAND = "npx";
 const DEFAULT_CHROME_MCP_ARGS = [
   "-y",
   "chrome-devtools-mcp@latest",
-  "--autoConnect",
   // Direct chrome-devtools-mcp launches do not enable structuredContent by default.
   "--experimentalStructuredContent",
   "--experimental-page-id-routing",
@@ -44,6 +46,51 @@ const DEFAULT_CHROME_MCP_ARGS = [
 const sessions = new Map<string, ChromeMcpSession>();
 const pendingSessions = new Map<string, Promise<ChromeMcpSession>>();
 let sessionFactory: ChromeMcpSessionFactory | null = null;
+
+type ChromeMcpLaunchPlan = {
+  args: string[];
+  mode: "autoConnect" | "browserUrl" | "wsEndpoint" | "headless";
+};
+
+function buildChromeMcpLaunchPlan(profileName: string): ChromeMcpLaunchPlan {
+  const cfg = loadConfig();
+  const resolved = resolveBrowserConfig(cfg.browser, cfg);
+  const profile = resolveProfile(resolved, profileName);
+  if (!profile || profile.driver !== "existing-session") {
+    throw new BrowserProfileUnavailableError(
+      `Chrome MCP profile "${profileName}" is missing or is not driver=existing-session.`,
+    );
+  }
+
+  const args = [...DEFAULT_CHROME_MCP_ARGS];
+  if (profile.mcpTargetUrl) {
+    const parsed = new URL(profile.mcpTargetUrl);
+    if (parsed.protocol === "ws:" || parsed.protocol === "wss:") {
+      args.push("--wsEndpoint", profile.mcpTargetUrl);
+      return { args, mode: "wsEndpoint" };
+    }
+    args.push("--browserUrl", profile.mcpTargetUrl);
+    return { args, mode: "browserUrl" };
+  }
+
+  if (!resolved.headless) {
+    args.push("--autoConnect");
+    return { args, mode: "autoConnect" };
+  }
+
+  args.push("--headless");
+  args.push("--userDataDir", resolveOpenClawUserDataDir(profile.name));
+  if (resolved.executablePath) {
+    args.push("--executablePath", resolved.executablePath);
+  }
+  if (resolved.noSandbox) {
+    args.push("--chromeArg", "--no-sandbox", "--chromeArg", "--disable-setuid-sandbox");
+  }
+  for (const arg of resolved.extraArgs) {
+    args.push("--chromeArg", arg);
+  }
+  return { args, mode: "headless" };
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -224,9 +271,13 @@ async function createRealSession(
   profileName: string,
   userDataDir?: string,
 ): Promise<ChromeMcpSession> {
+  const launchPlan = buildChromeMcpLaunchPlan(profileName);
+  const args = userDataDir
+    ? buildChromeMcpArgs(userDataDir)
+    : launchPlan.args;
   const transport = new StdioClientTransport({
     command: DEFAULT_CHROME_MCP_COMMAND,
-    args: buildChromeMcpArgs(userDataDir),
+    args,
     stderr: "pipe",
   });
   const client = new Client(
@@ -246,12 +297,16 @@ async function createRealSession(
       }
     } catch (err) {
       await client.close().catch(() => {});
-      const targetLabel = userDataDir
-        ? `the configured Chromium user data dir (${userDataDir})`
-        : "Google Chrome's default profile";
+      const hint = userDataDir
+        ? `Make sure the configured Chromium user data dir (${userDataDir}) is running locally with remote debugging enabled.`
+        : launchPlan.mode === "autoConnect"
+          ? "Make sure Chrome is running, enable chrome://inspect/#remote-debugging, and approve the connection."
+          : launchPlan.mode === "browserUrl" || launchPlan.mode === "wsEndpoint"
+            ? "Make sure the configured browserUrl/wsEndpoint is reachable and Chrome is running with remote debugging enabled."
+            : "Make sure a Chrome executable is available, and use browser.noSandbox=true on Linux containers/root setups when needed.";
       throw new BrowserProfileUnavailableError(
         `Chrome MCP existing-session attach failed for profile "${profileName}". ` +
-          `Make sure ${targetLabel} is running locally with remote debugging enabled. ` +
+          `${hint} ` +
           `Details: ${String(err)}`,
       );
     }
@@ -637,6 +692,10 @@ export async function waitForChromeMcpText(params: {
     text: params.text,
     ...(typeof params.timeoutMs === "number" ? { timeout: params.timeoutMs } : {}),
   });
+}
+
+export function buildChromeMcpLaunchPlanForTest(profileName: string): ChromeMcpLaunchPlan {
+  return buildChromeMcpLaunchPlan(profileName);
 }
 
 export function setChromeMcpSessionFactoryForTest(factory: ChromeMcpSessionFactory | null): void {

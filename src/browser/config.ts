@@ -46,6 +46,7 @@ export type ResolvedBrowserProfile = {
   cdpHost: string;
   cdpIsLoopback: boolean;
   userDataDir?: string;
+  mcpTargetUrl?: string;
   color: string;
   driver: "openclaw" | "existing-session";
   attachOnly: boolean;
@@ -323,14 +324,19 @@ export function resolveProfile(
   const driver = profile.driver === "existing-session" ? "existing-session" : "openclaw";
 
   if (driver === "existing-session") {
-    // existing-session uses Chrome MCP auto-connect; no CDP port/URL needed
+    const parsed = rawProfileUrl
+      ? parseHttpUrl(rawProfileUrl, `browser.profiles.${profileName}.cdpUrl`)
+      : null;
+    // existing-session uses Chrome MCP. It can either auto-connect to a local desktop
+    // session or connect to a debuggable browser URL/WS endpoint when explicitly configured.
     return {
       name: profileName,
       cdpPort: 0,
       cdpUrl: "",
-      cdpHost: "",
-      cdpIsLoopback: true,
+      cdpHost: parsed?.parsed.hostname ?? "",
+      cdpIsLoopback: parsed ? isLoopbackHost(parsed.parsed.hostname) : true,
       userDataDir: resolveUserPath(profile.userDataDir?.trim() || "") || undefined,
+      ...(parsed ? { mcpTargetUrl: parsed.normalized } : {}),
       color: profile.color,
       driver,
       attachOnly: true,
