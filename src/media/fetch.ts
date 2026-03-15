@@ -44,6 +44,7 @@ type FetchMediaOptions = {
   lookupFn?: LookupFn;
   dispatcherAttempts?: FetchDispatcherAttempt[];
   shouldRetryFetchError?: (error: unknown) => boolean;
+  pinDns?: boolean;
 };
 
 function stripQuotes(value: string): string {
@@ -107,6 +108,7 @@ export async function fetchRemoteMedia(options: FetchMediaOptions): Promise<Fetc
     lookupFn,
     dispatcherAttempts,
     shouldRetryFetchError,
+    pinDns,
   } = options;
   const sourceUrl = redactMediaUrl(url);
 
@@ -125,8 +127,9 @@ export async function fetchRemoteMedia(options: FetchMediaOptions): Promise<Fetc
         init: requestInit,
         maxRedirects,
         policy: ssrfPolicy,
-        lookupFn: attempt.lookupFn ?? lookupFn,
-        dispatcherPolicy: attempt.dispatcherPolicy,
+        lookupFn,
+        dispatcherPolicy: policy,
+        pinDns,
       }),
     );
   try {
