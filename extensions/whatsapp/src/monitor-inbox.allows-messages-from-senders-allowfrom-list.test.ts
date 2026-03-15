@@ -272,7 +272,6 @@ describe("web monitor inbox", () => {
 
   it("handles append messages by marking them read but skipping auto-reply", async () => {
     const { onMessage, listener, sock } = await openInboxMonitor();
-    const staleTs = Math.floor(Date.now() / 1000) - 300;
 
     const upsert = {
       type: "append",
@@ -284,7 +283,7 @@ describe("web monitor inbox", () => {
             remoteJid: "999@s.whatsapp.net",
           },
           message: { conversation: "old message" },
-          messageTimestamp: staleTs,
+          messageTimestamp: nowSeconds(-300_000),
           pushName: "History Sender",
         },
       ],
