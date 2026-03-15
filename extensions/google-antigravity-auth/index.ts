@@ -6,7 +6,7 @@ import {
   isWSL2Sync,
   type OpenClawPluginApi,
   type ProviderAuthContext,
-} from "openclaw/plugin-sdk";
+} from "openclaw/plugin-sdk/google-antigravity-auth";
 
 // OAuth constants - decoded from pi-ai's base64 encoded values to stay in sync
 const decode = (s: string) => Buffer.from(s, "base64").toString();
