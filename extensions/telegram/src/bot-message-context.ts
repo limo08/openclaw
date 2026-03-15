@@ -4,14 +4,13 @@ import { logInboundDrop } from "openclaw/plugin-sdk/channel-runtime";
 import {
   createStatusReactionController,
   type StatusReactionController,
-} from "openclaw/plugin-sdk/channel-runtime";
-import { loadConfig } from "openclaw/plugin-sdk/config-runtime";
-import type { TelegramDirectConfig, TelegramGroupConfig } from "openclaw/plugin-sdk/config-runtime";
-import { ensureConfiguredBindingRouteReady } from "openclaw/plugin-sdk/conversation-runtime";
-import { recordChannelActivity } from "openclaw/plugin-sdk/infra-runtime";
-import { deriveLastRoutePolicy } from "openclaw/plugin-sdk/routing";
-import { DEFAULT_ACCOUNT_ID, resolveThreadSessionKeys } from "openclaw/plugin-sdk/routing";
-import { logVerbose } from "openclaw/plugin-sdk/runtime-env";
+} from "../../../src/channels/status-reactions.js";
+import { loadConfig } from "../../../src/config/config.js";
+import type { TelegramDirectConfig, TelegramGroupConfig } from "../../../src/config/types.js";
+import { logVerbose } from "../../../src/globals.js";
+import { recordChannelActivity } from "../../../src/infra/channel-activity.js";
+import { deriveLastRoutePolicy } from "../../../src/routing/resolve-route.js";
+import { DEFAULT_ACCOUNT_ID, resolveThreadSessionKeys } from "../../../src/routing/session-key.js";
 import { withTelegramApiErrorLogging } from "./api-logging.js";
 import { firstDefined, normalizeAllowFrom, normalizeDmAllowFromWithStore } from "./bot-access.js";
 import { resolveTelegramInboundBody } from "./bot-message-context.body.js";
@@ -95,10 +94,7 @@ export const buildTelegramMessageContext = async ({
   const requiresExplicitAccountBinding = (
     candidate: ReturnType<typeof resolveTelegramConversationRoute>["route"],
   ): boolean => candidate.accountId !== DEFAULT_ACCOUNT_ID && candidate.matchedBy === "default";
-  const isNamedAccountFallback = requiresExplicitAccountBinding(route);
-  // Named-account groups require an explicit binding; DMs get a
-  // per-account fallback session key below to preserve isolation.
-  if (isNamedAccountFallback && isGroup) {
+  if (requiresExplicitAccountBinding(route)) {
     logInboundDrop({
       log: logVerbose,
       channel: "telegram",
@@ -225,6 +221,7 @@ export const buildTelegramMessageContext = async ({
     return false;
   };
 
+<<<<<<< HEAD
   const baseSessionKey = resolveTelegramConversationBaseSessionKey({
     cfg: freshCfg,
     route,
@@ -232,6 +229,9 @@ export const buildTelegramMessageContext = async ({
     isGroup,
     senderId,
   });
+=======
+  const baseSessionKey = route.sessionKey;
+>>>>>>> df476c495a (fix: ci prune stray branch files and restore telegram bindings)
   // DMs: use thread suffix for session isolation (works regardless of dmScope)
   const threadKeys =
     dmThreadId != null
