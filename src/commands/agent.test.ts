@@ -464,11 +464,29 @@ describe("agentCommand", () => {
       const store = path.join(home, "sessions.json");
       mockConfig(home, store);
       const onPreflightPassed = vi.fn();
+      const clientTools = [
+        {
+          type: "function",
+          function: {
+            name: "web_search",
+            description: "test client tool",
+            parameters: { type: "object", additionalProperties: false, properties: {} },
+          },
+        },
+      ];
       await agentCommandFromIngress(
-        { message: "hi", to: "+1555", senderIsOwner: false, onPreflightPassed },
+        {
+          message: "hi",
+          to: "+1555",
+          senderIsOwner: false,
+          allowModelOverride: false,
+          clientTools,
+          onPreflightPassed,
+        },
         runtime,
       );
       const ingressCall = vi.mocked(runEmbeddedPiAgent).mock.calls.at(-1)?.[0];
+      expect(ingressCall?.clientTools).toBe(clientTools);
       expect(ingressCall?.onPreflightPassed).toBe(onPreflightPassed);
     });
   });
