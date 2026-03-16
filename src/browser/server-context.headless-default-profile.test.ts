@@ -33,7 +33,7 @@ function makeState(defaultProfile: string): BrowserServerState {
           color: "#00AA00",
         },
         "chrome-relay": {
-          driver: "extension",
+          driver: "extension" as never,
           cdpUrl: "http://127.0.0.1:18792",
           color: "#00AA00",
         },

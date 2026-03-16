@@ -33,15 +33,22 @@ export async function statusJsonCommand(
   runtime: RuntimeEnv,
 ) {
   const scan = await scanStatusJsonFast({ timeoutMs: opts.timeoutMs, all: opts.all }, runtime);
-  const securityAudit = await loadSecurityAuditModule().then(({ runSecurityAudit }) =>
-    runSecurityAudit({
-      config: scan.cfg,
-      sourceConfig: scan.sourceConfig,
-      deep: false,
-      includeFilesystem: true,
-      includeChannelSecurity: true,
-    }),
-  );
+  const shouldRunSecurityAudit = opts.all === true || opts.deep === true;
+  const securityAudit = shouldRunSecurityAudit
+    ? await loadSecurityAuditModule().then(({ runSecurityAudit }) =>
+        runSecurityAudit({
+          config: scan.cfg,
+          sourceConfig: scan.sourceConfig,
+          deep: false,
+          includeFilesystem: true,
+          includeChannelSecurity: true,
+        }),
+      )
+    : {
+        skipped: true,
+        reason:
+          'Run "openclaw status --json --all" or "openclaw security audit --deep" for security audit results.',
+      };
 
   const usage = opts.usage
     ? await loadProviderUsage().then(({ loadProviderUsageSummary }) =>
