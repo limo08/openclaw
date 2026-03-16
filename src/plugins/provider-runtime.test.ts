@@ -45,6 +45,7 @@ import {
   resolveProviderRuntimePlugin,
   runProviderDynamicModel,
   wrapProviderStreamFn,
+  resetProviderRuntimeHookCacheForTest,
 } from "./provider-runtime.js";
 
 const MODEL: ProviderRuntimeModel = {
@@ -62,6 +63,7 @@ const MODEL: ProviderRuntimeModel = {
 
 describe("provider-runtime", () => {
   beforeEach(() => {
+    resetProviderRuntimeHookCacheForTest();
     resolvePluginProvidersMock.mockReset();
     resolvePluginProvidersMock.mockReturnValue([]);
     resolveOwningPluginIdsForProviderMock.mockReset();
@@ -462,5 +464,58 @@ describe("provider-runtime", () => {
     expect(prepareRuntimeAuth).toHaveBeenCalledTimes(1);
     expect(resolveUsageAuth).toHaveBeenCalledTimes(1);
     expect(fetchUsageSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves bundled catalog hooks without loading provider plugins", async () => {
+    expect(
+      buildProviderMissingAuthMessageWithPlugin({
+        provider: "openai",
+        env: process.env,
+        context: {
+          env: process.env,
+          provider: "openai",
+          listProfileIds: (providerId) => (providerId === "openai-codex" ? ["p1"] : []),
+        },
+      }),
+    ).toContain("openai-codex/gpt-5.4");
+
+    expect(
+      resolveProviderBuiltInModelSuppression({
+        env: process.env,
+        context: {
+          env: process.env,
+          provider: "openai",
+          modelId: "gpt-5.3-codex-spark",
+        },
+      }),
+    ).toMatchObject({
+      suppress: true,
+    });
+
+    await expect(
+      augmentModelCatalogWithProviderPlugins({
+        env: process.env,
+        context: {
+          env: process.env,
+          entries: [
+            { provider: "openai", id: "gpt-5.2", name: "GPT-5.2" },
+            { provider: "openai", id: "gpt-5.2-pro", name: "GPT-5.2 Pro" },
+            { provider: "openai-codex", id: "gpt-5.3-codex", name: "GPT-5.3 Codex" },
+          ],
+        },
+      }),
+    ).resolves.toEqual([
+      { provider: "openai", id: "gpt-5.4", name: "gpt-5.4" },
+      { provider: "openai", id: "gpt-5.4-pro", name: "gpt-5.4-pro" },
+      { provider: "openai-codex", id: "gpt-5.4", name: "gpt-5.4" },
+      {
+        provider: "openai-codex",
+        id: "gpt-5.3-codex-spark",
+        name: "gpt-5.3-codex-spark",
+      },
+    ]);
+
+    expect(resolveOwningPluginIdsForProviderMock).not.toHaveBeenCalled();
+    expect(resolvePluginProvidersMock).not.toHaveBeenCalled();
   });
 });
