@@ -1,5 +1,19 @@
 import path from "node:path";
-import { fileTypeFromBuffer } from "file-type";
+// Lazy import: do not pull file-type at module load time to avoid loading all
+// its media parsers (APEv2, ID3, MP4, …) in startup-critical paths such as
+// `status --json`. The import is deferred to the first actual call.
+let _fileTypeFromBuffer: ((buf: Uint8Array) => Promise<{ mime: string } | undefined>) | null = null;
+async function getFileTypeFromBuffer(): Promise<
+  (buf: Uint8Array) => Promise<{ mime: string } | undefined>
+> {
+  if (!_fileTypeFromBuffer) {
+    const mod = await import("file-type");
+    _fileTypeFromBuffer = mod.fileTypeFromBuffer as (
+      buf: Uint8Array,
+    ) => Promise<{ mime: string } | undefined>;
+  }
+  return _fileTypeFromBuffer;
+}
 import { type MediaKind, mediaKindFromMime } from "./constants.js";
 
 // Map common mimes to preferred file extensions.
@@ -70,7 +84,8 @@ async function sniffMime(buffer?: Buffer): Promise<string | undefined> {
     return undefined;
   }
   try {
-    const type = await fileTypeFromBuffer(buffer);
+    const fn = await getFileTypeFromBuffer();
+    const type = await fn(buffer);
     return type?.mime ?? undefined;
   } catch {
     return undefined;
