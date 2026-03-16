@@ -62,6 +62,9 @@ export function ensurePluginRegistryLoaded(options?: { scope?: PluginRegistrySco
             workspaceDir,
             env: process.env,
           }),
+          // Keep cold-start status/setup paths on channel setup entries when the
+          // plugin explicitly says its full runtime can wait until after listen.
+          preferSetupRuntimeForChannelPlugins: true,
         }
       : scope === "channels"
         ? {
