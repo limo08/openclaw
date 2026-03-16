@@ -96,7 +96,7 @@ describe("gaxios fetch compat", () => {
     } as RequestInit);
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const [, init] = vi.mocked(fetchMock).mock.calls[0] ?? [];
 
     expect(init).not.toHaveProperty("agent");
     expect((init as { dispatcher?: unknown })?.dispatcher).toBeInstanceOf(ProxyAgent);
