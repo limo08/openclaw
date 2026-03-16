@@ -93,11 +93,10 @@ Browser settings live in `~/.openclaw/openclaw.json`.
         attachOnly: true,
         color: "#00AA00",
       },
-      brave: {
-        driver: "existing-session",
-        attachOnly: true,
-        userDataDir: "~/Library/Application Support/BraveSoftware/Brave-Browser",
-        color: "#FB542B",
+      "chrome-relay": {
+        driver: "extension",
+        cdpUrl: "http://127.0.0.1:18792",
+        color: "#00AA00",
       },
       remote: { cdpUrl: "http://10.0.0.42:9222", color: "#00AA00" },
     },
@@ -125,8 +124,6 @@ Notes:
 - Local `openclaw` profiles auto-assign `cdpPort`/`cdpUrl` — set those only for remote CDP.
 - `driver: "existing-session"` uses Chrome DevTools MCP instead of raw CDP. Do
   not set `cdpUrl` for that driver.
-- Set `browser.profiles.<name>.userDataDir` when an existing-session profile
-  should attach to a non-default Chromium user profile such as Brave or Edge.
 
 ## Use Brave (or another Chromium-based browser)
 
@@ -303,13 +300,68 @@ Defaults:
 
 All control endpoints accept `?profile=<name>`; the CLI uses `--browser-profile`.
 
-## Existing-session via Chrome DevTools MCP
+## Chrome extension relay (use your existing Chrome)
 
-OpenClaw can also attach to a running Chromium-based browser profile through the
-official Chrome DevTools MCP server. This reuses the tabs and login state
-already open in that browser profile.
+OpenClaw can also drive **your existing Chrome tabs** (no separate “openclaw” Chrome instance) via a local CDP relay + a Chrome extension.
 
-It supports two flows:
+Full guide: [Chrome extension](/tools/browser-login)
+
+Flow:
+
+- The Gateway runs locally (same machine) or a node host runs on the browser machine.
+- A local **relay server** listens at a loopback `cdpUrl` (default: `http://127.0.0.1:18792`).
+- You click the **OpenClaw Browser Relay** extension icon on a tab to attach (it does not auto-attach).
+- The agent controls that tab via the normal `browser` tool, by selecting the right profile.
+
+If the Gateway runs elsewhere, run a node host on the browser machine so the Gateway can proxy browser actions.
+
+### Sandboxed sessions
+
+If the agent session is sandboxed, the `browser` tool may default to `target="sandbox"` (sandbox browser).
+Chrome extension relay takeover requires host browser control, so either:
+
+- run the session unsandboxed, or
+- set `agents.defaults.sandbox.browser.allowHostControl: true` and use `target="host"` when calling the tool.
+
+### Setup
+
+1. Load the extension (dev/unpacked):
+
+```bash
+openclaw browser extension install
+```
+
+- Chrome → `chrome://extensions` → enable “Developer mode”
+- “Load unpacked” → select the directory printed by `openclaw browser extension path`
+- Pin the extension, then click it on the tab you want to control (badge shows `ON`).
+
+2. Use it:
+
+- CLI: `openclaw browser --browser-profile chrome-relay tabs`
+- Agent tool: `browser` with `profile="chrome-relay"`
+
+Optional: if you want a different name or relay port, create your own profile:
+
+```bash
+openclaw browser create-profile \
+  --name my-chrome \
+  --driver extension \
+  --cdp-url http://127.0.0.1:18792 \
+  --color "#00AA00"
+```
+
+Notes:
+
+- This mode relies on Playwright-on-CDP for most operations (screenshots/snapshots/actions).
+- Detach by clicking the extension icon again.
+- Agent use: prefer `profile="user"` for logged-in sites. Use `profile="chrome-relay"`
+  only when you specifically want the extension flow. The user must be present
+  to click the extension and attach the tab.
+
+## Chrome existing-session via MCP
+
+OpenClaw can also use the official Chrome DevTools MCP server for two different
+flows:
 
 - desktop attach via `--autoConnect`, which reuses a running Chrome profile and
   its existing tabs/login state
@@ -326,41 +378,13 @@ Built-in profile:
 - `user`
 
 Optional: create your own custom existing-session profile if you want a
-different name, color, or browser data directory.
+different name or color.
 
 Desktop attach flow:
 
-- The built-in `user` profile uses Chrome MCP auto-connect, which targets the
-  default local Google Chrome profile.
-
-Use `userDataDir` for Brave, Edge, Chromium, or a non-default Chrome profile:
-
-```json5
-{
-  browser: {
-    profiles: {
-      brave: {
-        driver: "existing-session",
-        attachOnly: true,
-        userDataDir: "~/Library/Application Support/BraveSoftware/Brave-Browser",
-        color: "#FB542B",
-      },
-    },
-  },
-}
-```
-
-Then in the matching browser:
-
-1. Open that browser's inspect page for remote debugging.
-2. Enable remote debugging.
-3. Keep the browser running and approve the connection prompt when OpenClaw attaches.
-
-Common inspect pages:
-
-- Chrome: `chrome://inspect/#remote-debugging`
-- Brave: `brave://inspect/#remote-debugging`
-- Edge: `edge://inspect/#remote-debugging`
+1. Open `chrome://inspect/#remote-debugging`
+2. Enable remote debugging
+3. Keep Chrome running and approve the connection prompt when OpenClaw attaches
 
 Live attach smoke test:
 
@@ -376,17 +400,14 @@ What success looks like:
 - `status` shows `driver: existing-session`
 - `status` shows `transport: chrome-mcp`
 - `status` shows `running: true`
-- `tabs` lists your already-open browser tabs
+- `tabs` lists your already-open Chrome tabs
 - `snapshot` returns refs from the selected live tab
 
 What to check if desktop attach does not work:
 
-- the target Chromium-based browser is version `144+`
-- remote debugging is enabled in that browser's inspect page
-- the browser showed and you accepted the attach consent prompt
-- `openclaw doctor` migrates old extension-based browser config and checks that
-  Chrome is installed locally for default auto-connect profiles, but it cannot
-  enable browser-side remote debugging for you
+- Chrome is version `144+`
+- remote debugging is enabled at `chrome://inspect/#remote-debugging`
+- Chrome showed and you accepted the attach consent prompt
 
 Headless / Linux / VPS flow:
 
@@ -439,8 +460,7 @@ Notes:
 - This path is higher-risk than the isolated `openclaw` profile because it can
   act inside your signed-in browser session.
 - OpenClaw uses the official Chrome DevTools MCP server for this driver.
-- On desktop, OpenClaw uses MCP `--autoConnect`. If `userDataDir` is set,
-  OpenClaw passes it through to target that explicit Chromium user data directory.
+- On desktop, OpenClaw uses MCP `--autoConnect`.
 - In headless mode, OpenClaw can launch Chrome through MCP or connect MCP to a
   configured browser URL/WS endpoint.
 - Existing-session screenshots support page captures and `--ref` element

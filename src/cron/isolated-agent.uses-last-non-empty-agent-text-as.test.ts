@@ -16,7 +16,6 @@ import {
 } from "./isolated-agent.test-harness.js";
 import type { CronJob } from "./types.js";
 
-let resolveThinkingDefaultSpy: ReturnType<typeof vi.spyOn>;
 function makeDeps(): CliDeps {
   return {
     sendMessageSlack: vi.fn(),
@@ -165,9 +164,7 @@ async function runStoredOverrideAndExpectModel(params: {
 
 describe("runCronIsolatedAgentTurn", () => {
   beforeEach(() => {
-    resolveThinkingDefaultSpy = vi
-      .spyOn(modelSelection, "resolveThinkingDefault")
-      .mockReturnValue("off");
+    vi.spyOn(modelSelection, "resolveThinkingDefault").mockReturnValue("off");
     vi.mocked(runEmbeddedPiAgent).mockClear();
     vi.mocked(loadModelCatalog).mockResolvedValue([]);
   });

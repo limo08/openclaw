@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type {
   CreateSandboxBackendParams,
-  OpenClawConfig,
   RemoteShellSandboxHandle,
   SandboxBackendCommandParams,
   SandboxBackendCommandResult,
@@ -11,13 +11,13 @@ import type {
   SandboxBackendHandle,
   SandboxBackendManager,
   SshSandboxSession,
-} from "openclaw/plugin-sdk/core";
+} from "openclaw/plugin-sdk/sandbox";
 import {
   createRemoteShellSandboxFsBridge,
   disposeSshSandboxSession,
   resolvePreferredOpenClawTmpDir,
   runSshSandboxCommand,
-} from "openclaw/plugin-sdk/core";
+} from "openclaw/plugin-sdk/sandbox";
 import {
   buildExecRemoteCommand,
   buildRemoteCommand,
