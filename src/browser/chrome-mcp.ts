@@ -263,7 +263,14 @@ async function closeChromeMcpSessionsForProfile(
 export function buildChromeMcpArgs(userDataDir?: string): string[] {
   const normalizedUserDataDir = normalizeChromeMcpUserDataDir(userDataDir);
   return normalizedUserDataDir
-    ? [...DEFAULT_CHROME_MCP_ARGS, "--userDataDir", normalizedUserDataDir]
+    ? [
+        DEFAULT_CHROME_MCP_ARGS[0],
+        DEFAULT_CHROME_MCP_ARGS[1],
+        "--autoConnect",
+        ...DEFAULT_CHROME_MCP_ARGS.slice(2),
+        "--userDataDir",
+        normalizedUserDataDir,
+      ]
     : [...DEFAULT_CHROME_MCP_ARGS];
 }
 
@@ -272,9 +279,7 @@ async function createRealSession(
   userDataDir?: string,
 ): Promise<ChromeMcpSession> {
   const launchPlan = buildChromeMcpLaunchPlan(profileName);
-  const args = userDataDir
-    ? buildChromeMcpArgs(userDataDir)
-    : launchPlan.args;
+  const args = userDataDir ? buildChromeMcpArgs(userDataDir) : launchPlan.args;
   const transport = new StdioClientTransport({
     command: DEFAULT_CHROME_MCP_COMMAND,
     args,

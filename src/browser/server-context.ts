@@ -5,7 +5,6 @@ import { resolveProfile } from "./config.js";
 import { DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME } from "./constants.js";
 import { BrowserProfileNotFoundError, toBrowserErrorResponse } from "./errors.js";
 import { InvalidBrowserNavigationUrlError } from "./navigation-guard.js";
-import { getBrowserProfileCapabilities } from "./profile-capabilities.js";
 import {
   refreshResolvedBrowserConfigFromDisk,
   resolveBrowserProfileWithHotReload,
@@ -47,23 +46,35 @@ function resolveImplicitProfileName(state: BrowserServerState): string {
     return defaultProfileName;
   }
 
+  const rawDefaultProfile = state.resolved.profiles[defaultProfileName];
   const defaultProfile = resolveProfile(state.resolved, defaultProfileName);
   if (!defaultProfile) {
     return defaultProfileName;
   }
 
-  const capabilities = getBrowserProfileCapabilities(defaultProfile);
-  if (!capabilities.requiresRelay) {
+  const defaultDriver =
+    typeof rawDefaultProfile === "object" && rawDefaultProfile
+      ? (rawDefaultProfile as { driver?: string }).driver
+      : undefined;
+  const defaultRequiresRelay =
+    defaultDriver !== "openclaw" && defaultDriver !== "existing-session" && defaultDriver != null;
+  if (!defaultRequiresRelay) {
     return defaultProfileName;
   }
 
+  const rawManagedProfile = state.resolved.profiles[DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME];
   const managedProfile = resolveProfile(state.resolved, DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME);
   if (!managedProfile) {
     return defaultProfileName;
   }
 
-  const managedCapabilities = getBrowserProfileCapabilities(managedProfile);
-  if (managedCapabilities.requiresRelay) {
+  const managedDriver =
+    typeof rawManagedProfile === "object" && rawManagedProfile
+      ? (rawManagedProfile as { driver?: string }).driver
+      : undefined;
+  const managedRequiresRelay =
+    managedDriver !== "openclaw" && managedDriver !== "existing-session" && managedDriver != null;
+  if (managedRequiresRelay) {
     return defaultProfileName;
   }
 

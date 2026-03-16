@@ -4,16 +4,23 @@ import type { ProviderPlugin, ProviderRuntimeModel } from "./types.js";
 type ResolvePluginProviders = typeof import("./providers.js").resolvePluginProviders;
 type ResolveOwningPluginIdsForProvider =
   typeof import("./providers.js").resolveOwningPluginIdsForProvider;
+type ResolveNonBundledProviderPluginIds =
+  typeof import("./providers.js").resolveNonBundledProviderPluginIds;
 
 const resolvePluginProvidersMock = vi.fn<ResolvePluginProviders>((_) => [] as ProviderPlugin[]);
 const resolveOwningPluginIdsForProviderMock = vi.fn<ResolveOwningPluginIdsForProvider>(
   (_) => undefined as string[] | undefined,
+);
+const resolveNonBundledProviderPluginIdsMock = vi.fn<ResolveNonBundledProviderPluginIds>(
+  (_) => [] as string[],
 );
 
 vi.mock("./providers.js", () => ({
   resolvePluginProviders: (params: unknown) => resolvePluginProvidersMock(params as never),
   resolveOwningPluginIdsForProvider: (params: unknown) =>
     resolveOwningPluginIdsForProviderMock(params as never),
+  resolveNonBundledProviderPluginIds: (params: unknown) =>
+    resolveNonBundledProviderPluginIdsMock(params as never),
 }));
 
 import {
@@ -59,6 +66,8 @@ describe("provider-runtime", () => {
     resolvePluginProvidersMock.mockReturnValue([]);
     resolveOwningPluginIdsForProviderMock.mockReset();
     resolveOwningPluginIdsForProviderMock.mockReturnValue(undefined);
+    resolveNonBundledProviderPluginIdsMock.mockReset();
+    resolveNonBundledProviderPluginIdsMock.mockReturnValue([]);
   });
 
   it("matches providers by alias for runtime hook lookup", () => {
@@ -188,7 +197,6 @@ describe("provider-runtime", () => {
         },
       ];
     });
-
     expect(
       runProviderDynamicModel({
         provider: "demo",

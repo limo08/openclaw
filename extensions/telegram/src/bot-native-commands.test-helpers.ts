@@ -86,25 +86,8 @@ const deliveryMocks = vi.hoisted(() => ({
 }));
 export const deliverReplies = deliveryMocks.deliverReplies;
 vi.mock("./bot/delivery.js", () => ({ deliverReplies: deliveryMocks.deliverReplies }));
-const replyMocks = vi.hoisted(() => ({
-  dispatchReplyWithBufferedBlockDispatcher: vi.fn(async () => ({
-    queuedFinal: false,
-    counts: {},
-  })),
-}));
-export const dispatchReplyWithBufferedBlockDispatcher =
-  replyMocks.dispatchReplyWithBufferedBlockDispatcher;
-vi.mock("../../../src/auto-reply/reply/provider-dispatcher.js", () => ({
-  dispatchReplyWithBufferedBlockDispatcher: replyMocks.dispatchReplyWithBufferedBlockDispatcher,
-}));
 vi.mock("../../../src/acp/persistent-bindings.route.js", () => ({
   ensureConfiguredAcpRouteReady: vi.fn(async () => ({ ok: true })),
-}));
-vi.mock("../../../src/channels/reply-prefix.js", () => ({
-  createReplyPrefixOptions: vi.fn(() => ({ onModelSelected: () => {} })),
-}));
-vi.mock("../../../src/channels/session-meta.js", () => ({
-  recordInboundSessionMetaSafe: vi.fn(async () => {}),
 }));
 vi.mock("./conversation-route.js", () => ({
   resolveTelegramConversationRoute: vi.fn(() => ({
