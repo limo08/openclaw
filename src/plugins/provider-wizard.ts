@@ -100,7 +100,12 @@ export function resolveProviderWizardOptions(params: {
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
 }): ProviderWizardOption[] {
-  const providers = resolvePluginProviders(params);
+  return resolveProviderWizardOptionsFromProviders(resolvePluginProviders(params));
+}
+
+export function resolveProviderWizardOptionsFromProviders(
+  providers: ProviderPlugin[],
+): ProviderWizardOption[] {
   const options: ProviderWizardOption[] = [];
 
   for (const provider of providers) {
@@ -169,7 +174,12 @@ export function resolveProviderModelPickerEntries(params: {
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
 }): ProviderModelPickerEntry[] {
-  const providers = resolvePluginProviders(params);
+  return resolveProviderModelPickerEntriesFromProviders(resolvePluginProviders(params));
+}
+
+export function resolveProviderModelPickerEntriesFromProviders(
+  providers: ProviderPlugin[],
+): ProviderModelPickerEntry[] {
   const entries: ProviderModelPickerEntry[] = [];
 
   for (const provider of providers) {
