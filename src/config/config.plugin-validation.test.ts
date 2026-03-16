@@ -207,11 +207,23 @@ describe("config plugin validation", () => {
             issue.path === "plugins.load.paths" && issue.message.includes("plugin path not found"),
         ),
       ).toBe(true);
-      expect(res.issues).toEqual(
+      expect(res.warnings).toEqual(
         expect.arrayContaining([
-          { path: "plugins.allow", message: "plugin not found: missing-allow" },
-          { path: "plugins.deny", message: "plugin not found: missing-deny" },
-          { path: "plugins.slots.memory", message: "plugin not found: missing-slot" },
+          {
+            path: "plugins.allow",
+            message:
+              "plugin not found: missing-allow (stale config entry ignored; remove it from plugins config)",
+          },
+          {
+            path: "plugins.deny",
+            message:
+              "plugin not found: missing-deny (stale config entry ignored; remove it from plugins config)",
+          },
+          {
+            path: "plugins.slots.memory",
+            message:
+              "plugin not found: missing-slot (stale config entry ignored; remove it from plugins config)",
+          },
         ]),
       );
       expect(res.warnings).toContainEqual({
@@ -259,22 +271,22 @@ describe("config plugin validation", () => {
           {
             path: `plugins.entries.${removedId}`,
             message:
-              "plugin removed: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
+              "plugin not found: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
           },
           {
             path: "plugins.allow",
             message:
-              "plugin removed: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
+              "plugin not found: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
           },
           {
             path: "plugins.deny",
             message:
-              "plugin removed: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
+              "plugin not found: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
           },
           {
             path: "plugins.slots.memory",
             message:
-              "plugin removed: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
+              "plugin not found: some-removed-plugin (stale config entry ignored; remove it from plugins config)",
           },
         ]),
       );

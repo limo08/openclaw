@@ -78,10 +78,10 @@ describe("loadEnabledBundleMcpConfig", () => {
       expect(loaded.config.mcpServers.bundleProbe?.args).toEqual([
         expect.stringMatching(/[\\/]servers[\\/]probe\.mjs$/),
       ]);
-      expect(
-        typeof loaded.config.mcpServers.bundleProbe?.args?.[0] === "string" &&
-          path.isAbsolute(loaded.config.mcpServers.bundleProbe.args[0]),
-      ).toBe(true);
+      const bundleProbeArgs = loaded.config.mcpServers.bundleProbe?.args as string[] | undefined;
+      expect(typeof bundleProbeArgs?.[0] === "string" && path.isAbsolute(bundleProbeArgs[0])).toBe(
+        true,
+      );
     } finally {
       env.restore();
     }
