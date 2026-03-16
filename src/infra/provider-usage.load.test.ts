@@ -9,6 +9,27 @@ vi.mock("../plugins/provider-runtime.js", () => ({
   resetProviderRuntimeHookCacheForTest: vi.fn(),
 }));
 
+// Mock extension dynamic imports to avoid slow module resolution on Windows CI
+vi.mock("../../extensions/github-copilot/usage.js", () => ({
+  fetchCopilotUsage: vi
+    .fn()
+    .mockImplementation(async (token: string, _timeoutMs: number, fetchFn: typeof fetch) => {
+      const res = await fetchFn("https://api.github.com/copilot_internal/user", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json()) as {
+        quota_snapshots?: { chat?: { percent_remaining?: number } };
+        copilot_plan?: string;
+      };
+      const percentRemaining = data?.quota_snapshots?.chat?.percent_remaining ?? 0;
+      return {
+        provider: "github-copilot",
+        displayName: "GitHub Copilot",
+        windows: [{ label: "Chat", usedPercent: 100 - percentRemaining }],
+      };
+    }),
+}));
+
 const usageNow = Date.UTC(2026, 0, 7, 0, 0, 0);
 
 type ProviderAuth = NonNullable<
