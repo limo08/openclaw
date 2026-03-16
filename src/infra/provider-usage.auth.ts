@@ -1,6 +1,3 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
   dedupeProfileIds,
   ensureAuthProfileStore,
@@ -12,8 +9,6 @@ import { isNonSecretApiKeyMarker } from "../agents/model-auth-markers.js";
 import { resolveUsableCustomProviderApiKey } from "../agents/model-auth.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
 import { loadConfig, type OpenClawConfig } from "../config/config.js";
-import { resolveRequiredHomeDir } from "../infra/home-dir.js";
-import { resolveProviderUsageAuthWithPlugin } from "../plugins/provider-runtime.js";
 import { normalizeSecretInput } from "../utils/normalize-secret-input.js";
 import type { UsageProviderId } from "./provider-usage.types.js";
 
@@ -31,6 +26,16 @@ type UsageAuthState = {
   env: NodeJS.ProcessEnv;
   agentDir?: string;
 };
+
+const BUILT_IN_PROVIDER_USAGE_AUTH_IDS = new Set<UsageProviderId>([
+  "anthropic",
+  "github-copilot",
+  "google-gemini-cli",
+  "minimax",
+  "openai-codex",
+  "xiaomi",
+  "zai",
+]);
 
 function resolveProviderApiKeyFromConfigAndStore(params: {
   state: UsageAuthState;
@@ -131,6 +136,7 @@ async function resolveProviderUsageAuthViaPlugin(params: {
   state: UsageAuthState;
   provider: UsageProviderId;
 }): Promise<ProviderAuth | null> {
+  const { resolveProviderUsageAuthWithPlugin } = await import("../plugins/provider-runtime.js");
   const resolved = await resolveProviderUsageAuthWithPlugin({
     provider: params.provider,
     config: params.state.cfg,
@@ -170,10 +176,16 @@ async function resolveProviderUsageAuthViaPlugin(params: {
   };
 }
 
-function resolveLegacyZaiUsageToken(env: NodeJS.ProcessEnv): string | undefined {
+async function resolveLegacyZaiUsageToken(env: NodeJS.ProcessEnv): Promise<string | undefined> {
   try {
+    const [fs, os, path, homeDir] = await Promise.all([
+      import("node:fs"),
+      import("node:os"),
+      import("node:path"),
+      import("../infra/home-dir.js"),
+    ]);
     const authPath = path.join(
-      resolveRequiredHomeDir(env, os.homedir),
+      homeDir.resolveRequiredHomeDir(env, os.homedir),
       ".pi",
       "agent",
       "auth.json",
@@ -206,7 +218,7 @@ function parseGoogleUsageToken(token: string): string {
 async function resolveBuiltInProviderUsageAuth(params: {
   state: UsageAuthState;
   provider: UsageProviderId;
-}): Promise<ProviderAuth | null> {
+}): Promise<ProviderAuth | null | undefined> {
   switch (params.provider) {
     case "anthropic":
     case "github-copilot":
@@ -250,7 +262,7 @@ async function resolveBuiltInProviderUsageAuth(params: {
           state: params.state,
           providerIds: [params.provider, "z-ai"],
           envDirect: [params.state.env.ZAI_API_KEY, params.state.env.Z_AI_API_KEY],
-        }) ?? resolveLegacyZaiUsageToken(params.state.env);
+        }) ?? (await resolveLegacyZaiUsageToken(params.state.env));
       return token ? { provider: params.provider, token } : null;
     }
   }
@@ -284,6 +296,9 @@ export async function resolveProviderAuths(params: {
     });
     if (builtInAuth) {
       auths.push(builtInAuth);
+      continue;
+    }
+    if (BUILT_IN_PROVIDER_USAGE_AUTH_IDS.has(provider)) {
       continue;
     }
     const pluginAuth = await resolveProviderUsageAuthViaPlugin({
