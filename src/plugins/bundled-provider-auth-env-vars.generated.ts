@@ -4,6 +4,7 @@ export const BUNDLED_PROVIDER_AUTH_ENV_VAR_CANDIDATES = {
   anthropic: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
   byteplus: ["BYTEPLUS_API_KEY"],
   chutes: ["CHUTES_API_KEY", "CHUTES_OAUTH_TOKEN"],
+  clawapi: ["CLAWAPI_KEY"],
   "cloudflare-ai-gateway": ["CLOUDFLARE_AI_GATEWAY_API_KEY"],
   fal: ["FAL_KEY"],
   "github-copilot": ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"],

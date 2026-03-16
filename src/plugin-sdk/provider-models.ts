@@ -102,6 +102,12 @@ export {
   KILOCODE_MODEL_CATALOG,
 } from "../providers/kilocode-shared.js";
 export {
+  buildClawApiModelDefinition,
+  CLAWAPI_BASE_URL,
+  CLAWAPI_MODEL_CATALOG,
+} from "../agents/clawapi-models.js";
+export { CLAWAPI_DEFAULT_MODEL_REF } from "../plugins/provider-auth-storage.js";
+export {
   discoverVercelAiGatewayModels,
   VERCEL_AI_GATEWAY_BASE_URL,
 } from "../agents/vercel-ai-gateway.js";
