@@ -10,55 +10,65 @@ import {
 import { withTempCronHome, writeSessionStore } from "./isolated-agent.test-harness.js";
 import { setupIsolatedAgentTurnMocks } from "./isolated-agent.test-setup.js";
 
+const WINDOWS_CI_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 120_000;
+
 describe("runCronIsolatedAgentTurn forum topic delivery", () => {
   beforeEach(() => {
     setupIsolatedAgentTurnMocks();
   });
 
-  it("routes forum-topic telegram targets through the correct delivery path", async () => {
-    await withTempCronHome(async (home) => {
-      const storePath = await writeSessionStore(home, { lastProvider: "webchat", lastTo: "" });
-      const deps = createCliDeps();
-      mockAgentPayloads([{ text: "forum message" }]);
+  it(
+    "routes forum-topic telegram targets through the correct delivery path",
+    async () => {
+      await withTempCronHome(async (home) => {
+        const storePath = await writeSessionStore(home, { lastProvider: "webchat", lastTo: "" });
+        const deps = createCliDeps();
+        mockAgentPayloads([{ text: "forum message" }]);
 
-      const res = await runTelegramAnnounceTurn({
-        home,
-        storePath,
-        deps,
-        delivery: { mode: "announce", channel: "telegram", to: "123:topic:42" },
+        const res = await runTelegramAnnounceTurn({
+          home,
+          storePath,
+          deps,
+          delivery: { mode: "announce", channel: "telegram", to: "123:topic:42" },
+        });
+
+        expect(res.status).toBe("ok");
+        expect(res.delivered).toBe(true);
+        expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
+        expectDirectTelegramDelivery(deps, {
+          chatId: "123",
+          text: "forum message",
+          messageThreadId: 42,
+        });
       });
+    },
+    WINDOWS_CI_TIMEOUT_MS,
+  );
 
-      expect(res.status).toBe("ok");
-      expect(res.delivered).toBe(true);
-      expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
-      expectDirectTelegramDelivery(deps, {
-        chatId: "123",
-        text: "forum message",
-        messageThreadId: 42,
+  it(
+    "routes plain telegram targets through the correct delivery path",
+    async () => {
+      await withTempCronHome(async (home) => {
+        const storePath = await writeSessionStore(home, { lastProvider: "webchat", lastTo: "" });
+        const deps = createCliDeps();
+        mockAgentPayloads([{ text: "plain message" }]);
+
+        const plainRes = await runTelegramAnnounceTurn({
+          home,
+          storePath,
+          deps,
+          delivery: { mode: "announce", channel: "telegram", to: "123" },
+        });
+
+        expect(plainRes.status).toBe("ok");
+        expect(plainRes.delivered).toBe(true);
+        expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
+        expectDirectTelegramDelivery(deps, {
+          chatId: "123",
+          text: "plain message",
+        });
       });
-    });
-  });
-
-  it("routes plain telegram targets through the correct delivery path", async () => {
-    await withTempCronHome(async (home) => {
-      const storePath = await writeSessionStore(home, { lastProvider: "webchat", lastTo: "" });
-      const deps = createCliDeps();
-      mockAgentPayloads([{ text: "plain message" }]);
-
-      const plainRes = await runTelegramAnnounceTurn({
-        home,
-        storePath,
-        deps,
-        delivery: { mode: "announce", channel: "telegram", to: "123" },
-      });
-
-      expect(plainRes.status).toBe("ok");
-      expect(plainRes.delivered).toBe(true);
-      expect(runSubagentAnnounceFlow).not.toHaveBeenCalled();
-      expectDirectTelegramDelivery(deps, {
-        chatId: "123",
-        text: "plain message",
-      });
-    });
-  });
+    },
+    WINDOWS_CI_TIMEOUT_MS,
+  );
 });

@@ -2,13 +2,29 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createProviderUsageFetch, makeResponse } from "../test-utils/provider-usage-fetch.js";
 import { loadProviderUsageSummary } from "./provider-usage.load.js";
 import { ignoredErrors } from "./provider-usage.shared.js";
-import {
-  loadUsageWithAuth,
-  type ProviderUsageAuth,
-  usageNow,
-} from "./provider-usage.test-support.js";
 
-type ProviderAuth = ProviderUsageAuth<typeof loadProviderUsageSummary>;
+// Mock provider-runtime to avoid slow dynamic imports on Windows CI
+vi.mock("../plugins/provider-runtime.js", () => ({
+  resolveProviderUsageSnapshotWithPlugin: vi.fn().mockResolvedValue(null),
+  resetProviderRuntimeHookCacheForTest: vi.fn(),
+}));
+
+const usageNow = Date.UTC(2026, 0, 7, 0, 0, 0);
+
+type ProviderAuth = NonNullable<
+  NonNullable<Parameters<typeof loadProviderUsageSummary>[0]>["auth"]
+>[number];
+
+async function loadUsageWithAuth(
+  auth: ProviderAuth[],
+  mockFetch: ReturnType<typeof createProviderUsageFetch>,
+) {
+  return await loadProviderUsageSummary({
+    now: usageNow,
+    auth,
+    fetch: mockFetch as unknown as typeof fetch,
+  });
+}
 
 const resolveProviderUsageSnapshotWithPlugin = vi.hoisted(() => vi.fn(async () => null));
 
@@ -54,7 +70,6 @@ describe("provider-usage.load", () => {
     });
 
     const summary = await loadUsageWithAuth(
-      loadProviderUsageSummary,
       [
         { provider: "github-copilot", token: "copilot-token" },
         { provider: "google-gemini-cli", token: "gemini-token" },
@@ -87,14 +102,13 @@ describe("provider-usage.load", () => {
 
   it("returns empty provider list when auth resolves to none", async () => {
     const mockFetch = createProviderUsageFetch(async () => makeResponse(404, "not found"));
-    const summary = await loadUsageWithAuth(loadProviderUsageSummary, [], mockFetch);
+    const summary = await loadUsageWithAuth([], mockFetch);
     expect(summary).toEqual({ updatedAt: usageNow, providers: [] });
   });
 
   it("returns unsupported provider snapshots for unknown provider ids", async () => {
     const mockFetch = createProviderUsageFetch(async () => makeResponse(404, "not found"));
     const summary = await loadUsageWithAuth(
-      loadProviderUsageSummary,
       [{ provider: "unsupported-provider", token: "token-u" }] as unknown as ProviderAuth[],
       mockFetch,
     );
@@ -112,7 +126,6 @@ describe("provider-usage.load", () => {
     ignoredErrors.add("HTTP 500");
     try {
       const summary = await loadUsageWithAuth(
-        loadProviderUsageSummary,
         [{ provider: "anthropic", token: "token-a" }],
         mockFetch,
       );

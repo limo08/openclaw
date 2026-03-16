@@ -36,7 +36,7 @@ describe("ensurePluginRegistryLoaded", () => {
     vi.clearAllMocks();
     mocks.loadConfig.mockReturnValue({
       plugins: { enabled: true },
-      channels: { telegram: { enabled: false } },
+      channels: { telegram: { enabled: true, botToken: "test-token" } },
     });
     mocks.loadPluginManifestRegistry.mockReturnValue({
       plugins: [
