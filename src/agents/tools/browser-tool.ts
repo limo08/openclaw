@@ -290,7 +290,7 @@ function shouldPreferHostForProfile(profileName: string | undefined) {
     return false;
   }
   const capabilities = getBrowserProfileCapabilities(profile);
-  return capabilities.requiresRelay || capabilities.usesChromeMcp;
+  return capabilities.isRemote || capabilities.usesChromeMcp;
 }
 
 export function createBrowserTool(opts?: {
