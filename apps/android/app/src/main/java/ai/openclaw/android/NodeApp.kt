@@ -1,5 +1,6 @@
 package ai.openclaw.android
 
+import ai.openclaw.app.BuildConfig
 import android.app.Application
 import android.os.StrictMode
 

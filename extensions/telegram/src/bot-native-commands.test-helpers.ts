@@ -1,28 +1,24 @@
-import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
-import type { ChannelGroupPolicy } from "openclaw/plugin-sdk/config-runtime";
-import type { TelegramAccountConfig } from "openclaw/plugin-sdk/config-runtime";
-import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
-import type { MockFn } from "openclaw/plugin-sdk/testing";
 import { vi } from "vitest";
-import {
-  createNativeCommandTestParams,
-  type NativeCommandTestParams,
-} from "./bot-native-commands.fixture-test-support.js";
-import type { RegisterTelegramNativeCommandsParams } from "./bot-native-commands.js";
+import type { OpenClawConfig } from "../../../src/config/config.js";
+import type { ChannelGroupPolicy } from "../../../src/config/group-policy.js";
+import type { TelegramAccountConfig } from "../../../src/config/types.js";
+import type { RuntimeEnv } from "../../../src/runtime.js";
+import type { MockFn } from "../../../src/test-utils/vitest-mock-fn.js";
 import { registerTelegramNativeCommands } from "./bot-native-commands.js";
 
+type RegisterTelegramNativeCommandsParams = Parameters<typeof registerTelegramNativeCommands>[0];
 type GetPluginCommandSpecsFn =
-  typeof import("openclaw/plugin-sdk/plugin-runtime").getPluginCommandSpecs;
-type MatchPluginCommandFn = typeof import("openclaw/plugin-sdk/plugin-runtime").matchPluginCommand;
+  typeof import("../../../src/plugins/commands.js").getPluginCommandSpecs;
+type MatchPluginCommandFn = typeof import("../../../src/plugins/commands.js").matchPluginCommand;
 type ExecutePluginCommandFn =
-  typeof import("openclaw/plugin-sdk/plugin-runtime").executePluginCommand;
+  typeof import("../../../src/plugins/commands.js").executePluginCommand;
 type DispatchReplyWithBufferedBlockDispatcherFn =
-  typeof import("openclaw/plugin-sdk/reply-runtime").dispatchReplyWithBufferedBlockDispatcher;
+  typeof import("../../../src/auto-reply/reply/provider-dispatcher.js").dispatchReplyWithBufferedBlockDispatcher;
 type DispatchReplyWithBufferedBlockDispatcherResult = Awaited<
   ReturnType<DispatchReplyWithBufferedBlockDispatcherFn>
 >;
 type RecordInboundSessionMetaSafeFn =
-  typeof import("openclaw/plugin-sdk/channel-runtime").recordInboundSessionMetaSafe;
+  typeof import("../../../src/channels/session-meta.js").recordInboundSessionMetaSafe;
 type AnyMock = MockFn<(...args: unknown[]) => unknown>;
 type AnyAsyncMock = MockFn<(...args: unknown[]) => Promise<unknown>>;
 type NativeCommandHarness = {
@@ -30,7 +26,13 @@ type NativeCommandHarness = {
   sendMessage: AnyAsyncMock;
   setMyCommands: AnyAsyncMock;
   log: AnyMock;
-  bot: RegisterTelegramNativeCommandsParams["bot"];
+  bot: {
+    api: {
+      setMyCommands: AnyAsyncMock;
+      sendMessage: AnyAsyncMock;
+    };
+    command: (name: string, handler: (ctx: unknown) => Promise<void>) => void;
+  };
 };
 
 const pluginCommandMocks = vi.hoisted(() => ({
@@ -42,7 +44,7 @@ export const getPluginCommandSpecs = pluginCommandMocks.getPluginCommandSpecs;
 export const matchPluginCommand = pluginCommandMocks.matchPluginCommand;
 export const executePluginCommand = pluginCommandMocks.executePluginCommand;
 
-vi.mock("openclaw/plugin-sdk/plugin-runtime", () => ({
+vi.mock("../../../src/plugins/commands.js", () => ({
   getPluginCommandSpecs: pluginCommandMocks.getPluginCommandSpecs,
   matchPluginCommand: pluginCommandMocks.matchPluginCommand,
   executePluginCommand: pluginCommandMocks.executePluginCommand,
@@ -65,37 +67,100 @@ const replyPipelineMocks = vi.hoisted(() => {
 export const dispatchReplyWithBufferedBlockDispatcher =
   replyPipelineMocks.dispatchReplyWithBufferedBlockDispatcher;
 
-vi.mock("openclaw/plugin-sdk/reply-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/reply-runtime")>();
-  return {
-    ...actual,
-    finalizeInboundContext: replyPipelineMocks.finalizeInboundContext,
-    dispatchReplyWithBufferedBlockDispatcher:
-      replyPipelineMocks.dispatchReplyWithBufferedBlockDispatcher,
-  };
-});
-vi.mock("openclaw/plugin-sdk/channel-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/channel-runtime")>();
-  return {
-    ...actual,
-    createReplyPrefixOptions: replyPipelineMocks.createReplyPrefixOptions,
-    recordInboundSessionMetaSafe: replyPipelineMocks.recordInboundSessionMetaSafe,
-  };
-});
+vi.mock("../../../src/auto-reply/reply/inbound-context.js", () => ({
+  finalizeInboundContext: replyPipelineMocks.finalizeInboundContext,
+}));
+vi.mock("../../../src/auto-reply/reply/provider-dispatcher.js", () => ({
+  dispatchReplyWithBufferedBlockDispatcher:
+    replyPipelineMocks.dispatchReplyWithBufferedBlockDispatcher,
+}));
+vi.mock("../../../src/channels/reply-prefix.js", () => ({
+  createReplyPrefixOptions: replyPipelineMocks.createReplyPrefixOptions,
+}));
+vi.mock("../../../src/channels/session-meta.js", () => ({
+  recordInboundSessionMetaSafe: replyPipelineMocks.recordInboundSessionMetaSafe,
+}));
 
 const deliveryMocks = vi.hoisted(() => ({
   deliverReplies: vi.fn(async () => {}),
 }));
 export const deliverReplies = deliveryMocks.deliverReplies;
 vi.mock("./bot/delivery.js", () => ({ deliverReplies: deliveryMocks.deliverReplies }));
-vi.mock("openclaw/plugin-sdk/conversation-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/conversation-runtime")>();
+const replyMocks = vi.hoisted(() => ({
+  dispatchReplyWithBufferedBlockDispatcher: vi.fn(async () => ({
+    queuedFinal: false,
+    counts: {},
+  })),
+}));
+export const dispatchReplyWithBufferedBlockDispatcher =
+  replyMocks.dispatchReplyWithBufferedBlockDispatcher;
+vi.mock("../../../src/auto-reply/reply/provider-dispatcher.js", () => ({
+  dispatchReplyWithBufferedBlockDispatcher: replyMocks.dispatchReplyWithBufferedBlockDispatcher,
+}));
+vi.mock("../../../src/acp/persistent-bindings.route.js", () => ({
+  ensureConfiguredAcpRouteReady: vi.fn(async () => ({ ok: true })),
+}));
+vi.mock("../../../src/channels/reply-prefix.js", () => ({
+  createReplyPrefixOptions: vi.fn(() => ({ onModelSelected: () => {} })),
+}));
+vi.mock("../../../src/channels/session-meta.js", () => ({
+  recordInboundSessionMetaSafe: vi.fn(async () => {}),
+}));
+vi.mock("./conversation-route.js", () => ({
+  resolveTelegramConversationRoute: vi.fn(() => ({
+    route: {
+      agentId: "main",
+      accountId: "default",
+      sessionKey: "telegram:default",
+    },
+    configuredBinding: null,
+  })),
+}));
+vi.mock("../../../src/pairing/pairing-store.js", () => ({
+  readChannelAllowFromStore: vi.fn(async () => []),
+}));
+
+export function createNativeCommandTestParams(
+  params: Partial<RegisterTelegramNativeCommandsParams> = {},
+): RegisterTelegramNativeCommandsParams {
+  const log = vi.fn();
   return {
-    ...actual,
-    readChannelAllowFromStore: vi.fn(async () => []),
+    bot:
+      params.bot ??
+      ({
+        api: {
+          setMyCommands: vi.fn().mockResolvedValue(undefined),
+          sendMessage: vi.fn().mockResolvedValue(undefined),
+        },
+        command: vi.fn(),
+      } as unknown as RegisterTelegramNativeCommandsParams["bot"]),
+    cfg: params.cfg ?? ({} as OpenClawConfig),
+    runtime:
+      params.runtime ?? ({ log } as unknown as RegisterTelegramNativeCommandsParams["runtime"]),
+    accountId: params.accountId ?? "default",
+    telegramCfg: params.telegramCfg ?? ({} as RegisterTelegramNativeCommandsParams["telegramCfg"]),
+    allowFrom: params.allowFrom ?? [],
+    groupAllowFrom: params.groupAllowFrom ?? [],
+    replyToMode: params.replyToMode ?? "off",
+    textLimit: params.textLimit ?? 4000,
+    useAccessGroups: params.useAccessGroups ?? false,
+    nativeEnabled: params.nativeEnabled ?? true,
+    nativeSkillsEnabled: params.nativeSkillsEnabled ?? false,
+    nativeDisabledExplicit: params.nativeDisabledExplicit ?? false,
+    resolveGroupPolicy:
+      params.resolveGroupPolicy ??
+      (() =>
+        ({
+          allowlistEnabled: false,
+          allowed: true,
+        }) as ReturnType<RegisterTelegramNativeCommandsParams["resolveGroupPolicy"]>),
+    resolveTelegramGroupConfig:
+      params.resolveTelegramGroupConfig ??
+      (() => ({ groupConfig: undefined, topicConfig: undefined })),
+    shouldSkipUpdate: params.shouldSkipUpdate ?? (() => false),
+    opts: params.opts ?? { token: "token" },
   };
-});
-export { createNativeCommandTestParams };
+}
 
 export function createNativeCommandsHarness(params?: {
   cfg?: OpenClawConfig;
@@ -112,17 +177,7 @@ export function createNativeCommandsHarness(params?: {
   const sendMessage: AnyAsyncMock = vi.fn(async () => undefined);
   const setMyCommands: AnyAsyncMock = vi.fn(async () => undefined);
   const log: AnyMock = vi.fn();
-  const telegramDeps = {
-    loadConfig: vi.fn(() => params?.cfg ?? ({} as OpenClawConfig)),
-    resolveStorePath: vi.fn((storePath?: string) => storePath ?? "/tmp/sessions.json"),
-    readChannelAllowFromStore: vi.fn(async () => []),
-    enqueueSystemEvent: vi.fn(),
-    dispatchReplyWithBufferedBlockDispatcher:
-      replyPipelineMocks.dispatchReplyWithBufferedBlockDispatcher,
-    listSkillCommandsForAgents: vi.fn(() => []),
-    wasSentByBot: vi.fn(() => false),
-  };
-  const bot = {
+  const bot: NativeCommandHarness["bot"] = {
     api: {
       setMyCommands,
       sendMessage,
@@ -130,10 +185,10 @@ export function createNativeCommandsHarness(params?: {
     command: (name: string, handler: (ctx: unknown) => Promise<void>) => {
       handlers[name] = handler;
     },
-  } as unknown as RegisterTelegramNativeCommandsParams["bot"];
+  } as const;
 
   registerTelegramNativeCommands({
-    bot,
+    bot: bot as unknown as Parameters<typeof registerTelegramNativeCommands>[0]["bot"],
     cfg: params?.cfg ?? ({} as OpenClawConfig),
     runtime: params?.runtime ?? ({ log } as unknown as RuntimeEnv),
     accountId: "default",
@@ -146,7 +201,6 @@ export function createNativeCommandsHarness(params?: {
     nativeEnabled: params?.nativeEnabled ?? true,
     nativeSkillsEnabled: false,
     nativeDisabledExplicit: false,
-    telegramDeps,
     resolveGroupPolicy:
       params?.resolveGroupPolicy ??
       (() =>

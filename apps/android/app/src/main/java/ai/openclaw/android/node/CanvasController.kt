@@ -17,7 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import ai.openclaw.android.BuildConfig
+import ai.openclaw.app.BuildConfig
 import kotlin.coroutines.resume
 
 class CanvasController {

@@ -22,7 +22,7 @@ import ai.openclaw.android.gateway.GatewaySession
 import ai.openclaw.android.gateway.GatewayTlsParams
 import ai.openclaw.android.node.CameraCaptureManager
 import ai.openclaw.android.node.LocationCaptureManager
-import ai.openclaw.android.BuildConfig
+import ai.openclaw.app.BuildConfig
 import ai.openclaw.android.node.CanvasController
 import ai.openclaw.android.node.ScreenRecordManager
 import ai.openclaw.android.node.SmsManager
