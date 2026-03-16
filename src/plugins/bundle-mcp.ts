@@ -15,7 +15,12 @@ import { normalizePluginsConfig, resolveEffectiveEnableState } from "./config-st
 import { loadPluginManifestRegistry } from "./manifest-registry.js";
 import type { PluginBundleFormat } from "./types.js";
 
-export type BundleMcpServerConfig = Record<string, unknown>;
+export type BundleMcpServerConfig = {
+  command?: unknown;
+  args?: unknown[];
+  cwd?: unknown;
+  workingDirectory?: unknown;
+} & Record<string, unknown>;
 
 export type BundleMcpConfig = {
   mcpServers: Record<string, BundleMcpServerConfig>;

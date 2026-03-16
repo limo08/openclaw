@@ -1,10 +1,7 @@
-import { DEFAULT_CONTEXT_TOKENS, DEFAULT_MODEL, DEFAULT_PROVIDER } from "../agents/defaults.js";
-import { hasPotentialConfiguredChannels } from "../channels/config-presence.js";
 import { resolveAgentModelPrimaryValue } from "../config/model-input.js";
-import { resolveMainSessionKey } from "../config/sessions/main-session.js";
 import { resolveStorePath } from "../config/sessions/paths.js";
 import { readSessionStoreReadOnly } from "../config/sessions/store-read.js";
-import { resolveFreshSessionTotalTokens, type SessionEntry } from "../config/sessions/types.js";
+import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.js";
 import { listGatewayAgentsBasic } from "../gateway/agent-list.js";
 import { resolveHeartbeatSummaryForAgent } from "../infra/heartbeat-summary.js";
@@ -13,6 +10,11 @@ import { parseAgentSessionKey } from "../routing/session-key.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import { resolveRuntimeServiceVersion } from "../version.js";
 import type { HeartbeatStatus, SessionStatus, StatusSummary } from "./status.types.js";
+
+const DEFAULT_PROVIDER = "anthropic";
+const DEFAULT_MODEL = "claude-opus-4-6";
+const DEFAULT_CONTEXT_TOKENS = 200_000;
+const IGNORED_CHANNEL_CONFIG_KEYS = new Set(["defaults", "modelByChannel"]);
 
 let channelSummaryModulePromise: Promise<typeof import("../infra/channel-summary.js")> | undefined;
 let linkChannelModulePromise: Promise<typeof import("./status.link-channel.js")> | undefined;
@@ -36,6 +38,60 @@ const loadStatusSummaryRuntimeModule = createLazyRuntimeSurface(
 function loadConfigIoModule() {
   configIoModulePromise ??= import("../config/io.js");
   return configIoModulePromise;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasMeaningfulChannelConfig(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Object.keys(value).some((key) => key !== "enabled");
+}
+
+function hasPotentialConfiguredChannelsForStatusSummary(cfg: OpenClawConfig): boolean {
+  const channels = isRecord(cfg.channels) ? cfg.channels : null;
+  if (!channels) {
+    return false;
+  }
+  for (const [key, value] of Object.entries(channels)) {
+    if (IGNORED_CHANNEL_CONFIG_KEYS.has(key)) {
+      continue;
+    }
+    if (hasMeaningfulChannelConfig(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function resolveMainSessionKeyForStatusSummary(cfg?: {
+  session?: { scope?: "per-sender" | "global"; mainKey?: string };
+  agents?: { list?: Array<{ id?: string; default?: boolean }> };
+}): string {
+  if (cfg?.session?.scope === "global") {
+    return "global";
+  }
+  const agents = cfg?.agents?.list ?? [];
+  const defaultAgentId = agents.find((agent) => agent?.default)?.id ?? agents[0]?.id ?? "main";
+  const mainKey = cfg?.session?.mainKey?.trim().toLowerCase() || "main";
+  const agentId = defaultAgentId?.trim().toLowerCase() || "main";
+  return `agent:${agentId}:${mainKey}`;
+}
+
+function resolveFreshSessionTotalTokensForStatusSummary(
+  entry?: Pick<SessionEntry, "totalTokens" | "totalTokensFresh"> | null,
+): number | undefined {
+  const total = entry?.totalTokens;
+  if (typeof total !== "number" || !Number.isFinite(total) || total < 0) {
+    return undefined;
+  }
+  if (entry?.totalTokensFresh === false) {
+    return undefined;
+  }
+  return total;
 }
 
 function parseStatusModelRef(
@@ -178,7 +234,7 @@ export async function getStatusSummary(
   const { classifySessionKey, resolveContextTokensForModel, resolveSessionModelRef } =
     await loadStatusSummaryRuntimeModule();
   const cfg = options.config ?? (await loadConfigIoModule()).loadConfig();
-  const needsChannelPlugins = hasPotentialConfiguredChannels(cfg);
+  const needsChannelPlugins = hasPotentialConfiguredChannelsForStatusSummary(cfg);
   const linkContext = needsChannelPlugins
     ? await loadLinkChannelModule().then(({ resolveLinkChannelContext }) =>
         resolveLinkChannelContext(cfg),
@@ -203,7 +259,7 @@ export async function getStatusSummary(
         }),
       )
     : [];
-  const mainSessionKey = resolveMainSessionKey(cfg);
+  const mainSessionKey = resolveMainSessionKeyForStatusSummary(cfg);
   const queuedSystemEvents = peekSystemEvents(mainSessionKey);
 
   const resolved = resolveConfiguredStatusModelRef({
@@ -251,7 +307,7 @@ export async function getStatusSummary(
             contextTokensOverride: entry?.contextTokens,
             fallbackContextTokens: configContextTokens ?? undefined,
           }) ?? null;
-        const total = resolveFreshSessionTotalTokens(entry);
+        const total = resolveFreshSessionTotalTokensForStatusSummary(entry);
         const totalTokensFresh =
           typeof entry?.totalTokens === "number" ? entry?.totalTokensFresh !== false : false;
         const remaining =

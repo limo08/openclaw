@@ -1,14 +1,15 @@
 import { Type } from "@sinclair/typebox";
 import type { GatewayMessageChannel } from "../../utils/message-channel.js";
-import { ACP_SPAWN_MODES, ACP_SPAWN_STREAM_TARGETS, spawnAcpDirect } from "../acp-spawn.js";
 import { optionalStringEnum } from "../schema/typebox.js";
 import type { SpawnedToolContext } from "../spawned-context.js";
-import { SUBAGENT_SPAWN_MODES, spawnSubagentDirect } from "../subagent-spawn.js";
 import type { AnyAgentTool } from "./common.js";
 import { jsonResult, readStringParam, ToolInputError } from "./common.js";
 
 const SESSIONS_SPAWN_RUNTIMES = ["subagent", "acp"] as const;
 const SESSIONS_SPAWN_SANDBOX_MODES = ["inherit", "require"] as const;
+const ACP_SPAWN_MODES = ["run", "session"] as const;
+const ACP_SPAWN_STREAM_TARGETS = ["parent"] as const;
+const SUBAGENT_SPAWN_MODES = ["run", "session"] as const;
 const UNSUPPORTED_SESSIONS_SPAWN_PARAM_KEYS = [
   "target",
   "transport",
@@ -149,6 +150,7 @@ export function createSessionsSpawnTool(
               "attachments are currently unsupported for runtime=acp; use runtime=subagent or remove attachments",
           });
         }
+        const { spawnAcpDirect } = await import("../acp-spawn.runtime.js");
         const result = await spawnAcpDirect(
           {
             task,
@@ -173,6 +175,7 @@ export function createSessionsSpawnTool(
         return jsonResult(result);
       }
 
+      const { spawnSubagentDirect } = await import("../subagent-spawn.runtime.js");
       const result = await spawnSubagentDirect(
         {
           task,
