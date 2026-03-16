@@ -191,7 +191,8 @@ export function extractTelegramAllowedEmojiReactions(
     }
     const emoji = typedReaction.emoji.trim();
     if (emoji) {
-      allowed.add(emoji);
+      // Normalize variation selectors so ❤️ (U+2764 U+FE0F) matches ❤ (U+2764)
+      allowed.add(normalizeTelegramReactionEmoji(emoji));
     }
   }
   return allowed;
@@ -243,7 +244,8 @@ export function resolveTelegramReactionVariant(params: {
 
   for (const candidate of variants) {
     const isAllowedByChat =
-      params.allowedEmojiReactions == null || params.allowedEmojiReactions.has(candidate);
+      params.allowedEmojiReactions == null ||
+      params.allowedEmojiReactions.has(normalizeTelegramReactionEmoji(candidate));
     if (isAllowedByChat && isTelegramSupportedReactionEmoji(candidate)) {
       return candidate;
     }
