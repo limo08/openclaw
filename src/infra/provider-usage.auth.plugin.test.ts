@@ -33,4 +33,30 @@ describe("resolveProviderAuths plugin boundary", () => {
       },
     ]);
   });
+
+  it("skips plugin resolution when built-in auth can be resolved directly", async () => {
+    const prev = process.env.MINIMAX_API_KEY;
+    process.env.MINIMAX_API_KEY = "minimax-test-key";
+
+    try {
+      await expect(
+        resolveProviderAuths({
+          providers: ["minimax"],
+        }),
+      ).resolves.toEqual([
+        {
+          provider: "minimax",
+          token: "minimax-test-key",
+        },
+      ]);
+    } finally {
+      if (prev === undefined) {
+        delete process.env.MINIMAX_API_KEY;
+      } else {
+        process.env.MINIMAX_API_KEY = prev;
+      }
+    }
+
+    expect(resolveProviderUsageAuthWithPluginMock).not.toHaveBeenCalled();
+  });
 });
