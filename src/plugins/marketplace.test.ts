@@ -10,6 +10,10 @@ vi.mock("./install.js", () => ({
   installPluginFromPath: (...args: unknown[]) => installPluginFromPathMock(...args),
 }));
 
+function normalizePathForAssertion(value: string): string {
+  return value.replaceAll("\\", "/");
+}
+
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-marketplace-test-"));
   try {
@@ -45,23 +49,27 @@ describe("marketplace plugins", () => {
 
       const { listMarketplacePlugins } = await import("./marketplace.js");
       const result = await listMarketplacePlugins({ marketplace: rootDir });
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        throw new Error("expected marketplace listing to succeed");
-      }
-      expect(result.sourceLabel.replaceAll("\\", "/")).toContain(".claude-plugin/marketplace.json");
-      expect(result.manifest).toEqual({
-        name: "Example Marketplace",
-        version: "1.0.0",
-        plugins: [
-          {
-            name: "frontend-design",
-            version: "0.1.0",
-            description: "Design system bundle",
-            source: { kind: "path", path: "./plugins/frontend-design" },
-          },
-        ],
+      expect(result).toEqual({
+        ok: true,
+        sourceLabel: expect.any(String),
+        manifest: {
+          name: "Example Marketplace",
+          version: "1.0.0",
+          plugins: [
+            {
+              name: "frontend-design",
+              version: "0.1.0",
+              description: "Design system bundle",
+              source: { kind: "path", path: "./plugins/frontend-design" },
+            },
+          ],
+        },
       });
+      if (result.ok) {
+        expect(normalizePathForAssertion(result.sourceLabel)).toContain(
+          ".claude-plugin/marketplace.json",
+        );
+      }
     });
   });
 
