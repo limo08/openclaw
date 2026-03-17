@@ -22,7 +22,9 @@ export type CronEvent = {
   summary?: string;
   delivered?: boolean;
   deliveryStatus?: CronDeliveryStatus;
+  deliveryAttempted?: boolean;
   deliveryError?: string;
+  resolvedAgentId?: string;
   sessionId?: string;
   sessionKey?: string;
   nextRunAtMs?: number;
