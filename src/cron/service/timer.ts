@@ -187,7 +187,16 @@ function resolveDeliveryAttempted(params: {
 
 function resolveCronJobAgentId(state: CronServiceState, job: Pick<CronJob, "agentId">): string {
   const raw = typeof job.agentId === "string" && job.agentId.trim() ? job.agentId : undefined;
+  const resolved = state.deps.resolveCronAgentId?.(raw);
+  if (typeof resolved === "string" && resolved.trim().length > 0) {
+    return normalizeAgentId(resolved);
+  }
   return normalizeAgentId(raw ?? state.deps.defaultAgentId ?? DEFAULT_AGENT_ID);
+}
+
+function resolveRequestedCronJobAgentId(job: Pick<CronJob, "agentId">): string | undefined {
+  const raw = typeof job.agentId === "string" && job.agentId.trim() ? job.agentId : undefined;
+  return raw ? normalizeAgentId(raw) : undefined;
 }
 
 function normalizeCronMessageChannel(input: unknown): CronMessageChannel | undefined {
@@ -361,9 +370,10 @@ export function applyJobResult(
   });
   job.state.lastDeliveryError =
     deliveryStatus === "not-delivered" && result.error ? result.error : undefined;
-  job.state.lastResolvedAgentId = normalizeAgentId(
-    result.resolvedAgentId ?? resolveCronJobAgentId(state, job),
-  );
+  const effectiveResolvedAgentId = result.resolvedAgentId ?? resolveCronJobAgentId(state, job);
+  job.state.lastResolvedAgentId = effectiveResolvedAgentId
+    ? normalizeAgentId(effectiveResolvedAgentId)
+    : undefined;
   job.updatedAtMs = result.endedAt;
 
   // Track consecutive errors for backoff / auto-disable.
@@ -1053,6 +1063,7 @@ export async function executeJobCore(
     }
 > {
   const resolvedAgentId = resolveCronJobAgentId(state, job);
+  const requestedAgentId = resolveRequestedCronJobAgentId(job);
   const resolveAbortError = () => ({
     status: "error" as const,
     error: timeoutErrorMessage(),
@@ -1101,7 +1112,7 @@ export async function executeJobCore(
     // Downstream gateway wiring canonicalizes/guards this key per agent.
     const targetMainSessionKey = job.sessionKey;
     state.deps.enqueueSystemEvent(text, {
-      agentId: resolvedAgentId,
+      agentId: requestedAgentId,
       sessionKey: targetMainSessionKey,
       contextKey: `cron:${job.id}`,
     });

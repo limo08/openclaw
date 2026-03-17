@@ -617,6 +617,113 @@ describe("gateway server cron", () => {
     }
   });
 
+  test("records fallback-resolved agent id when timer execution throws before completion", async () => {
+    const { prevSkipCron } = await setupCronTestRun({
+      tempPrefix: "openclaw-gw-cron-agent-fallback-error-timer-",
+    });
+
+    const { server, ws } = await startServerWithClient();
+    await connectOk(ws);
+    cronIsolatedRun.mockRejectedValueOnce(new Error("isolated failure"));
+
+    try {
+      const addRes = await rpcReq(ws, "cron.add", {
+        name: "unknown-agent-fallback-error-timer",
+        enabled: true,
+        deleteAfterRun: false,
+        schedule: { kind: "at", at: new Date(Date.now() + 250).toISOString() },
+        sessionTarget: "isolated",
+        wakeMode: "next-heartbeat",
+        agentId: "unknown-agent",
+        payload: { kind: "agentTurn", message: "hello" },
+        delivery: { mode: "none" },
+      });
+      expect(addRes.ok).toBe(true);
+      const jobIdValue = (addRes.payload as { id?: unknown } | null)?.id;
+      const jobId = typeof jobIdValue === "string" ? jobIdValue : "";
+      expect(jobId.length > 0).toBe(true);
+
+      await waitForCronEvent(
+        ws,
+        (payload) =>
+          payload?.jobId === jobId && payload?.action === "finished" && payload?.status === "error",
+        20_000,
+      );
+
+      const listRes = await rpcReq(ws, "cron.list", { includeDisabled: true });
+      expect(listRes.ok).toBe(true);
+      const jobs = ((listRes.payload as { jobs?: unknown[] } | null)?.jobs ?? []) as Array<{
+        id?: string;
+        state?: { lastResolvedAgentId?: string };
+      }>;
+      const updated = jobs.find((job) => job.id === jobId);
+      expect(updated?.state?.lastResolvedAgentId).toBe("main");
+
+      const runsRes = await rpcReq(ws, "cron.runs", { id: jobId, limit: 10 });
+      expect(runsRes.ok).toBe(true);
+      const entries = ((runsRes.payload as { entries?: unknown[] } | null)?.entries ??
+        []) as Array<{
+        status?: string;
+        resolvedAgentId?: string;
+      }>;
+      expect(entries.at(-1)?.status).toBe("error");
+      expect(entries.at(-1)?.resolvedAgentId).toBe("main");
+    } finally {
+      await cleanupCronTestRun({ ws, server, prevSkipCron });
+    }
+  });
+
+  test("records fallback-resolved agent id when cron.run throws before completion", async () => {
+    const { prevSkipCron } = await setupCronTestRun({
+      tempPrefix: "openclaw-gw-cron-agent-fallback-error-manual-",
+    });
+
+    const { server, ws } = await startServerWithClient();
+    await connectOk(ws);
+    cronIsolatedRun.mockRejectedValueOnce(new Error("isolated failure"));
+
+    try {
+      const addRes = await rpcReq(ws, "cron.add", {
+        name: "unknown-agent-fallback-error-manual",
+        enabled: true,
+        deleteAfterRun: false,
+        schedule: { kind: "every", everyMs: 60_000 },
+        sessionTarget: "isolated",
+        wakeMode: "next-heartbeat",
+        agentId: "unknown-agent",
+        payload: { kind: "agentTurn", message: "hello" },
+        delivery: { mode: "none" },
+      });
+      expect(addRes.ok).toBe(true);
+      const jobIdValue = (addRes.payload as { id?: unknown } | null)?.id;
+      const jobId = typeof jobIdValue === "string" ? jobIdValue : "";
+      expect(jobId.length > 0).toBe(true);
+
+      await runCronJobAndWaitForFinished(ws, jobId);
+
+      const listRes = await rpcReq(ws, "cron.list", { includeDisabled: true });
+      expect(listRes.ok).toBe(true);
+      const jobs = ((listRes.payload as { jobs?: unknown[] } | null)?.jobs ?? []) as Array<{
+        id?: string;
+        state?: { lastResolvedAgentId?: string };
+      }>;
+      const updated = jobs.find((job) => job.id === jobId);
+      expect(updated?.state?.lastResolvedAgentId).toBe("main");
+
+      const runsRes = await rpcReq(ws, "cron.runs", { id: jobId, limit: 10 });
+      expect(runsRes.ok).toBe(true);
+      const entries = ((runsRes.payload as { entries?: unknown[] } | null)?.entries ??
+        []) as Array<{
+        status?: string;
+        resolvedAgentId?: string;
+      }>;
+      expect(entries.at(-1)?.status).toBe("error");
+      expect(entries.at(-1)?.resolvedAgentId).toBe("main");
+    } finally {
+      await cleanupCronTestRun({ ws, server, prevSkipCron });
+    }
+  });
+
   test("returns from cron.run immediately while isolated work continues in background", async () => {
     const { prevSkipCron } = await setupCronTestRun({
       tempPrefix: "openclaw-gw-cron-run-detached-",

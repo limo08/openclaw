@@ -51,6 +51,10 @@ export type CronListPageResult = {
 
 function resolveManualRunAgentId(state: CronServiceState, job: Pick<CronJob, "agentId">): string {
   const raw = typeof job.agentId === "string" && job.agentId.trim() ? job.agentId : undefined;
+  const resolved = state.deps.resolveCronAgentId?.(raw);
+  if (typeof resolved === "string" && resolved.trim().length > 0) {
+    return normalizeAgentId(resolved);
+  }
   return normalizeAgentId(raw ?? state.deps.defaultAgentId ?? DEFAULT_AGENT_ID);
 }
 

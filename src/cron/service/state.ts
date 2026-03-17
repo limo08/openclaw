@@ -46,6 +46,11 @@ export type CronServiceDeps = {
   cronConfig?: CronConfig;
   /** Default agent id for jobs without an agent id. */
   defaultAgentId?: string;
+  /**
+   * Resolve the effective cron agent id used for execution. When provided,
+   * this should apply runtime fallback logic (e.g. unknown agent -> default).
+   */
+  resolveCronAgentId?: (requested?: string) => string;
   /** Resolve session store path for a given agent id. */
   resolveSessionStorePath?: (agentId?: string) => string;
   /** Path to the session store (sessions.json) for reaper use. */

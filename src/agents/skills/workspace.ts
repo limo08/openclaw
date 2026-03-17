@@ -750,10 +750,11 @@ export function loadWorkspaceSkillEntries(
     managedSkillsDir?: string;
     bundledSkillsDir?: string;
     agentId?: string;
+    applyPolicy?: boolean;
   },
 ): SkillEntry[] {
   const entries = loadSkillEntries(workspaceDir, opts);
-  if (!opts?.config || !opts.agentId) {
+  if (!opts?.config || !opts.agentId || opts.applyPolicy === false) {
     return entries;
   }
   return filterSkillEntries(entries, opts.config, undefined, undefined, opts.agentId).entries;

@@ -233,6 +233,7 @@ export function buildGatewayCronService(params: {
     cronEnabled,
     cronConfig: params.cfg.cron,
     defaultAgentId,
+    resolveCronAgentId: (requested) => resolveCronAgent(requested).agentId,
     resolveSessionStorePath,
     sessionStorePath,
     enqueueSystemEvent: (text, opts) => {

@@ -243,6 +243,7 @@ export function buildWorkspaceSkillStatus(
       managedSkillsDir,
       bundledSkillsDir: bundledContext.dir,
       agentId: opts?.agentId,
+      applyPolicy: false,
     });
   const prefs = resolveSkillsInstallPreferences(opts?.config);
   return {
