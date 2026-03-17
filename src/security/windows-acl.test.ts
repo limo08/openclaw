@@ -7,7 +7,7 @@ vi.mock("node:os", () =>
   // Keep the full os surface (tmpdir/homedir/etc.) and override only userInfo.
   vi.importActual("node:os").then((module) => {
     const actual = module as typeof import("node:os");
-    const userInfo = () => ({ username: MOCK_USERNAME }) as unknown as NodeJS.UserInfo<string>;
+    const userInfo = () => ({ username: MOCK_USERNAME }) as ReturnType<typeof actual.userInfo>;
     const patched = { ...actual, userInfo };
     return { ...patched, default: patched };
   }),
