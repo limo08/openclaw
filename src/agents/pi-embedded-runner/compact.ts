@@ -516,6 +516,11 @@ export async function compactEmbeddedPiSessionDirect(
     sessionId: params.sessionId,
     cwd: effectiveWorkspace,
   });
+  const { defaultAgentId, sessionAgentId } = resolveSessionAgentIds({
+    sessionKey: params.sessionKey,
+    config: params.config,
+    agentId: params.agentId,
+  });
 
   let restoreSkillEnv: (() => void) | undefined;
   process.chdir(effectiveWorkspace);
@@ -524,7 +529,7 @@ export async function compactEmbeddedPiSessionDirect(
       workspaceDir: effectiveWorkspace,
       config: params.config,
       skillsSnapshot: params.skillsSnapshot,
-      agentId: params.agentId,
+      agentId: sessionAgentId,
     });
     restoreSkillEnv = params.skillsSnapshot
       ? applySkillEnvOverridesFromSnapshot({
@@ -540,7 +545,7 @@ export async function compactEmbeddedPiSessionDirect(
       entries: shouldLoadSkillEntries ? skillEntries : undefined,
       config: params.config,
       workspaceDir: effectiveWorkspace,
-      agentId: params.agentId,
+      agentId: sessionAgentId,
     });
 
     const sessionLabel = params.sessionKey ?? params.sessionId;
@@ -1172,6 +1177,7 @@ export async function compactEmbeddedPiSession(
         const { sessionAgentId } = resolveSessionAgentIds({
           sessionKey: params.sessionKey,
           config: params.config,
+          agentId: params.agentId,
         });
         const resolvedMessageProvider = params.messageChannel ?? params.messageProvider;
         const hookCtx = {
