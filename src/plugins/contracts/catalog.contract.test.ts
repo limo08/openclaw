@@ -75,7 +75,14 @@ describe("provider catalog contract", () => {
 
   it("keeps codex-only missing-auth hints wired through the provider runtime", () => {
     const openaiProvider = requireProviderContractProvider("openai");
-    expectCodexMissingAuthHint(({ context }) => openaiProvider.buildMissingAuthMessage?.(context));
+    expectCodexMissingAuthHint(
+      ({ context }) =>
+        openaiProvider.buildMissingAuthMessage?.({
+          ...context,
+          listProfileIds: (providerId) =>
+            typeof providerId === "string" ? context.listProfileIds(providerId) : [],
+        }) ?? undefined,
+    );
   });
 
   it("keeps built-in model suppression wired through the provider runtime", () => {
