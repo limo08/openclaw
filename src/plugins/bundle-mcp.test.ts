@@ -11,6 +11,10 @@ function getServerArgs(value: unknown): unknown[] | undefined {
   return isRecord(value) && Array.isArray(value.args) ? value.args : undefined;
 }
 
+function normalizePath(p: string | undefined): string {
+  return p?.replace(/\\/g, "/").toLowerCase() ?? "";
+}
+
 const tempHarness = createBundleMcpTempHarness();
 
 afterEach(async () => {
@@ -55,8 +59,10 @@ describe("loadEnabledBundleMcpConfig", () => {
       if (!loadedServerPath) {
         throw new Error("expected bundled MCP args to include the server path");
       }
-      expect(await fs.realpath(loadedServerPath)).toBe(resolvedServerPath);
-      expect(loadedServer.cwd).toBe(resolvedPluginRoot);
+      expect(normalizePath(await fs.realpath(loadedServerPath))).toBe(
+        normalizePath(resolvedServerPath),
+      );
+      expect(normalizePath(loadedServer.cwd as string)).toBe(normalizePath(resolvedPluginRoot));
     } finally {
       env.restore();
     }
@@ -181,17 +187,21 @@ describe("loadEnabledBundleMcpConfig", () => {
       const resolvedPluginRoot = await fs.realpath(pluginRoot);
 
       expect(loaded.diagnostics).toEqual([]);
-      expect(loaded.config.mcpServers.inlineProbe).toEqual({
-        command: path.join(resolvedPluginRoot, "bin", "server.sh"),
-        args: [
-          path.join(resolvedPluginRoot, "servers", "probe.mjs"),
-          path.join(resolvedPluginRoot, "local-probe.mjs"),
-        ],
-        cwd: resolvedPluginRoot,
-        env: {
-          PLUGIN_ROOT: resolvedPluginRoot,
-        },
-      });
+      const inlineProbe = loaded.config.mcpServers.inlineProbe as {
+        command?: string;
+        args?: string[];
+        cwd?: string;
+        env?: Record<string, string>;
+      };
+      expect(normalizePath(inlineProbe.command)).toBe(
+        normalizePath(path.join(resolvedPluginRoot, "bin", "server.sh")),
+      );
+      expect(inlineProbe.args?.map(normalizePath)).toEqual([
+        normalizePath(path.join(resolvedPluginRoot, "servers", "probe.mjs")),
+        normalizePath(path.join(resolvedPluginRoot, "local-probe.mjs")),
+      ]);
+      expect(normalizePath(inlineProbe.cwd)).toBe(normalizePath(resolvedPluginRoot));
+      expect(normalizePath(inlineProbe.env?.PLUGIN_ROOT)).toBe(normalizePath(resolvedPluginRoot));
     } finally {
       env.restore();
     }

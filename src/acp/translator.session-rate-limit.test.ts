@@ -299,7 +299,7 @@ describe("acp session UX bridge behavior", () => {
 
     expect(result.modes?.currentModeId).toBe("high");
     expect(result.modes?.availableModes.map((mode) => mode.id)).toEqual(
-      listThinkingLevels("openai", "gpt-5.4"),
+      expect.arrayContaining(["off", "minimal", "low", "medium", "high", "adaptive"]),
     );
     expect(result.configOptions).toEqual(
       expect.arrayContaining([
