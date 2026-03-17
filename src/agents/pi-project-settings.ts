@@ -23,7 +23,9 @@ type PiSettingsSnapshotWithMcp = PiSettingsSnapshot & {
   mcpServers?: ReturnType<typeof loadEmbeddedPiMcpConfig>["mcpServers"];
 };
 
-function sanitizePiSettingsSnapshot(settings: PiSettingsSnapshotWithMcp): PiSettingsSnapshotWithMcp {
+function sanitizePiSettingsSnapshot(
+  settings: PiSettingsSnapshotWithMcp,
+): PiSettingsSnapshotWithMcp {
   const sanitized = { ...settings };
   // Never allow plugin or workspace-local settings to override shell execution behavior.
   for (const key of SANITIZED_PROJECT_PI_KEYS) {
