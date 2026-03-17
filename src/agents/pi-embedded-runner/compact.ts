@@ -538,6 +538,7 @@ export async function compactEmbeddedPiSessionDirect(
       entries: shouldLoadSkillEntries ? skillEntries : undefined,
       config: params.config,
       workspaceDir: effectiveWorkspace,
+      agentId: params.agentId,
     });
 
     const sessionLabel = params.sessionKey ?? params.sessionId;
