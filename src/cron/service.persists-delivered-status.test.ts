@@ -261,7 +261,7 @@ describe("CronService persists delivered status", () => {
 
   it("preserves explicit agentId context for isolated runs", async () => {
     const store = await makeStorePath();
-    const runIsolatedAgentJob = vi.fn(async () => ({
+    const runIsolatedAgentJob = vi.fn(async (_params: { job?: { agentId?: string } }) => ({
       status: "ok" as const,
       summary: "done",
       delivered: true,
@@ -291,7 +291,8 @@ describe("CronService persists delivered status", () => {
       });
 
       expect(runIsolatedAgentJob).toHaveBeenCalled();
-      expect(runIsolatedAgentJob.mock.calls[0]?.[0]?.job?.agentId).toBe("ops");
+      const firstCallArg = runIsolatedAgentJob.mock.calls.at(0)?.[0];
+      expect(firstCallArg?.job?.agentId).toBe("ops");
       const updated = (await cron.list({ includeDisabled: true })).find(
         (entry) => entry.id === job.id,
       );

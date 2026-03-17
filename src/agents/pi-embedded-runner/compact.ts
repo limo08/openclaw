@@ -111,6 +111,7 @@ import { flushPendingToolResultsAfterIdle } from "./wait-for-idle-before-flush.j
 export type CompactEmbeddedPiSessionParams = {
   sessionId: string;
   runId?: string;
+  agentId?: string;
   sessionKey?: string;
   messageChannel?: string;
   messageProvider?: string;

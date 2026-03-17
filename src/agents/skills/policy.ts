@@ -112,7 +112,7 @@ export function matchesSkillPolicySnapshot(
   if (cached.agentId !== next.agentId) {
     return false;
   }
-  const keys: Array<keyof NonNullable<SkillSnapshot["policy"]>> = [
+  const keys: Array<"globalEnabled" | "agentEnabled" | "agentDisabled" | "effective"> = [
     "globalEnabled",
     "agentEnabled",
     "agentDisabled",
