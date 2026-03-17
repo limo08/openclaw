@@ -9,6 +9,7 @@ import { isNonSecretApiKeyMarker } from "../agents/model-auth-markers.js";
 import { resolveUsableCustomProviderApiKey } from "../agents/model-auth.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
 import { loadConfig, type OpenClawConfig } from "../config/config.js";
+import { resolveProviderUsageAuthWithPlugin } from "../plugins/provider-runtime.js";
 import { normalizeSecretInput } from "../utils/normalize-secret-input.js";
 import type { UsageProviderId } from "./provider-usage.types.js";
 
@@ -136,7 +137,6 @@ async function resolveProviderUsageAuthViaPlugin(params: {
   state: UsageAuthState;
   provider: UsageProviderId;
 }): Promise<ProviderAuth | null> {
-  const { resolveProviderUsageAuthWithPlugin } = await import("../plugins/provider-runtime.js");
   const resolved = await resolveProviderUsageAuthWithPlugin({
     provider: params.provider,
     config: params.state.cfg,
