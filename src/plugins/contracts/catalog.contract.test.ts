@@ -1,11 +1,15 @@
 import { beforeAll, beforeEach, describe, it, vi } from "vitest";
 import {
-  requireProviderContractProvider,
   expectAugmentedCodexCatalog,
   expectCodexBuiltInSuppression,
   expectCodexMissingAuthHint,
 } from "../provider-runtime.test-support.js";
-import { requireProviderContractProvider } from "./registry.js";
+import {
+  requireProviderContractProvider,
+  resolveProviderContractPluginIdsForProvider,
+  resolveProviderContractProvidersForPluginIds,
+  uniqueProviderContractProviders,
+} from "./registry.js";
 
 type ResolvePluginProviders = typeof import("../providers.js").resolvePluginProviders;
 type ResolveOwningPluginIdsForProvider =
