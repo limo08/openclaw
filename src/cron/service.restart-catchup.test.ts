@@ -102,7 +102,7 @@ describe("CronService restart catch-up", () => {
       async ({ cron, enqueueSystemEvent, requestHeartbeatNow }) => {
         expect(enqueueSystemEvent).toHaveBeenCalledWith(
           "digest now",
-          expect.objectContaining({ agentId: "main" }),
+          expect.objectContaining({ agentId: undefined }),
         );
         expect(requestHeartbeatNow).toHaveBeenCalled();
 
@@ -181,7 +181,7 @@ describe("CronService restart catch-up", () => {
       async ({ cron, enqueueSystemEvent, requestHeartbeatNow }) => {
         expect(enqueueSystemEvent).toHaveBeenCalledWith(
           "catch missed slot",
-          expect.objectContaining({ agentId: "main" }),
+          expect.objectContaining({ agentId: undefined }),
         );
         expect(requestHeartbeatNow).toHaveBeenCalled();
 
@@ -310,7 +310,7 @@ describe("CronService restart catch-up", () => {
       async ({ enqueueSystemEvent, requestHeartbeatNow }) => {
         expect(enqueueSystemEvent).toHaveBeenCalledWith(
           "replay after backoff elapsed",
-          expect.objectContaining({ agentId: "main" }),
+          expect.objectContaining({ agentId: undefined }),
         );
         expect(requestHeartbeatNow).toHaveBeenCalled();
       },
