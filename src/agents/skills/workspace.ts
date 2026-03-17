@@ -77,7 +77,10 @@ function filterSkillEntries(
   eligibility?: SkillEligibilityContext,
   agentId?: string,
 ): { entries: SkillEntry[]; policy?: EffectiveSkillPolicy } {
-  const policy = resolveEffectiveSkillPolicy(config, agentId);
+  const policy =
+    typeof agentId === "string" && agentId.trim().length > 0
+      ? resolveEffectiveSkillPolicy(config, agentId)
+      : undefined;
   let filtered = entries.filter((entry) => shouldIncludeSkill({ entry, config, eligibility }));
   if (policy) {
     filtered = filtered.filter((entry) => isSkillAllowedByPolicy(entry, policy));

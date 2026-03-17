@@ -102,6 +102,8 @@ export type CronServiceDeps = {
        * if the final per-message ack status is uncertain.
        */
       deliveryAttempted?: boolean;
+      /** Effective agent id actually used by the isolated runner, if known. */
+      resolvedAgentId?: string;
     } & CronRunOutcome &
       CronRunTelemetry
   >;

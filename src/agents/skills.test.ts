@@ -154,6 +154,33 @@ describe("buildWorkspaceSkillCommandSpecs", () => {
     const cmd = commands.find((entry) => entry.skillName === "tool-dispatch");
     expect(cmd?.dispatch).toEqual({ kind: "tool", toolName: "sessions_send", argMode: "raw" });
   });
+
+  it("does not apply agent policy when command specs are built without agentId", async () => {
+    const workspaceDir = await makeWorkspace();
+    await writeSkill({
+      dir: path.join(workspaceDir, "skills", "alpha"),
+      name: "alpha",
+      description: "Alpha",
+    });
+    await writeSkill({
+      dir: path.join(workspaceDir, "skills", "beta"),
+      name: "beta",
+      description: "Beta",
+    });
+
+    const commands = buildWorkspaceSkillCommandSpecs(workspaceDir, {
+      ...resolveTestSkillDirs(workspaceDir),
+      config: {
+        skills: {
+          policy: {
+            globalEnabled: ["alpha"],
+          },
+        },
+      },
+    });
+
+    expect(commands.map((entry) => entry.skillName).toSorted()).toEqual(["alpha", "beta"]);
+  });
 });
 
 describe("buildWorkspaceSkillsPrompt", () => {

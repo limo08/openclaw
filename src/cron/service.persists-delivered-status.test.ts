@@ -209,7 +209,7 @@ describe("CronService persists delivered status", () => {
     expectSuccessfulCronRun(updated);
     expect(updated?.state.lastDelivered).toBeUndefined();
     expect(updated?.state.lastDeliveryStatus).toBe("unknown");
-    expect(updated?.state.lastDeliveryAttempted).toBe(true);
+    expect(updated?.state.lastDeliveryAttempted).toBe(false);
     expect(updated?.state.lastDeliveryError).toBeUndefined();
     expect(updated?.state.lastResolvedAgentId).toBe("main");
   });

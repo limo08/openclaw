@@ -173,7 +173,6 @@ function resolveDeliveryStatus(params: { job: CronJob; delivered?: boolean }): C
 }
 
 function resolveDeliveryAttempted(params: {
-  job: CronJob;
   delivered?: boolean;
   deliveryAttempted?: boolean;
 }): boolean {
@@ -183,7 +182,7 @@ function resolveDeliveryAttempted(params: {
   if (typeof params.delivered === "boolean") {
     return true;
   }
-  return resolveCronDeliveryPlan(params.job).requested;
+  return false;
 }
 
 function resolveCronJobAgentId(state: CronServiceState, job: Pick<CronJob, "agentId">): string {
@@ -357,7 +356,6 @@ export function applyJobResult(
   const deliveryStatus = resolveDeliveryStatus({ job, delivered: result.delivered });
   job.state.lastDeliveryStatus = deliveryStatus;
   job.state.lastDeliveryAttempted = resolveDeliveryAttempted({
-    job,
     delivered: result.delivered,
     deliveryAttempted: result.deliveryAttempted,
   });
@@ -1204,7 +1202,7 @@ export async function executeJobCore(
     model: res.model,
     provider: res.provider,
     usage: res.usage,
-    resolvedAgentId,
+    resolvedAgentId: res.resolvedAgentId ?? resolvedAgentId,
   };
 }
 

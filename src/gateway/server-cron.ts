@@ -291,7 +291,7 @@ export function buildGatewayCronService(params: {
           sessionKey = customSessionId;
         }
       }
-      return await runCronIsolatedAgentTurn({
+      const result = await runCronIsolatedAgentTurn({
         cfg: runtimeConfig,
         deps: params.deps,
         job,
@@ -301,6 +301,7 @@ export function buildGatewayCronService(params: {
         sessionKey,
         lane: "cron",
       });
+      return { ...result, resolvedAgentId: agentId };
     },
     sendCronFailureAlert: async ({ job, text, channel, to, mode, accountId }) => {
       const { agentId, cfg: runtimeConfig } = resolveCronAgent(job.agentId);
