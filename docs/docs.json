@@ -870,6 +870,7 @@
                   "vps",
                   "install/kubernetes",
                   "install/fly",
+                  "install/daytona",
                   "install/hetzner",
                   "install/gcp",
                   "install/macos-vm",
