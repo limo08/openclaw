@@ -3,6 +3,12 @@ import fs from "node:fs/promises";
 import { vi } from "vitest";
 import type { MockBaileysSocket } from "../../../test/mocks/baileys.js";
 import { createMockBaileys } from "../../../test/mocks/baileys.js";
+import {
+  loadSessionStoreForTests,
+  recordSessionMetaFromInboundForTests,
+  updateLastRouteForTests,
+  updateSessionStoreForTests,
+} from "./test-session-store-mocks.js";
 
 // Use globalThis to store the mock config so it survives vi.mock hoisting
 const CONFIG_KEY = Symbol.for("openclaw:testConfigMock");
@@ -32,10 +38,16 @@ export function resetLoadConfigMock() {
   (globalThis as Record<symbol, unknown>)[CONFIG_KEY] = () => DEFAULT_CONFIG;
 }
 
-vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
+vi.mock("openclaw/plugin-sdk/config-runtime", async () => {
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/config-runtime")>(
+    "openclaw/plugin-sdk/config-runtime",
+  );
   return {
     ...actual,
+    loadSessionStore: loadSessionStoreForTests,
+    recordSessionMetaFromInbound: recordSessionMetaFromInboundForTests,
+    updateLastRoute: updateLastRouteForTests,
+    updateSessionStore: updateSessionStoreForTests,
     loadConfig: () => {
       const getter = (globalThis as Record<symbol, unknown>)[CONFIG_KEY];
       if (typeof getter === "function") {
@@ -74,13 +86,19 @@ vi.mock("openclaw/plugin-sdk/config-runtime", async (importOriginal) => {
 // Some web modules live under `src/web/auto-reply/*` and import config via a different
 // relative path (`../../config/config.js`). Mock both specifiers so tests stay stable
 // across refactors that move files between folders.
-vi.mock("../../config/config.js", async (importOriginal) => {
+vi.mock("../../config/config.js", async () => {
   // `../../config/config.js` is correct for modules under `src/web/auto-reply/*`.
   // For typing in this file (which lives in `src/web/*`), refer to the same module
   // via the local relative path.
-  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/config-runtime")>();
+  const actual = await vi.importActual<typeof import("openclaw/plugin-sdk/config-runtime")>(
+    "openclaw/plugin-sdk/config-runtime",
+  );
   return {
     ...actual,
+    loadSessionStore: loadSessionStoreForTests,
+    recordSessionMetaFromInbound: recordSessionMetaFromInboundForTests,
+    updateLastRoute: updateLastRouteForTests,
+    updateSessionStore: updateSessionStoreForTests,
     loadConfig: () => {
       const getter = (globalThis as Record<symbol, unknown>)[CONFIG_KEY];
       if (typeof getter === "function") {
