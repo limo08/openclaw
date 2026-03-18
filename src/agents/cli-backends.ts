@@ -39,17 +39,25 @@ const CLAUDE_BYPASS_PERMISSIONS_MODE = "bypassPermissions";
 
 const DEFAULT_CLAUDE_BACKEND: CliBackendConfig = {
   command: "claude",
-  args: ["-p", "--output-format", "json", "--permission-mode", "bypassPermissions"],
+  args: [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--permission-mode",
+    "bypassPermissions",
+  ],
   resumeArgs: [
     "-p",
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
     "--permission-mode",
     "bypassPermissions",
     "--resume",
     "{sessionId}",
   ],
-  output: "json",
+  output: "jsonl",
   input: "arg",
   modelArg: "--model",
   modelAliases: CLAUDE_MODEL_ALIASES,

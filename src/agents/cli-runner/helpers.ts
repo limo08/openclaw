@@ -229,6 +229,21 @@ export function parseCliJsonl(raw: string, backend: CliBackendConfig): CliOutput
     if (isRecord(parsed.usage)) {
       usage = toUsage(parsed.usage) ?? usage;
     }
+
+    // Claude stream-json: {"type":"result","result":"...","session_id":"...","usage":{...}}
+    if (
+      typeof parsed.type === "string" &&
+      parsed.type === "result" &&
+      typeof parsed.result === "string"
+    ) {
+      const resultText = parsed.result.trim();
+      if (resultText) {
+        return { text: resultText, sessionId, usage };
+      }
+      // Empty result: still preserve session tracking data and stop searching
+      return { text: "", sessionId, usage };
+    }
+
     const item = isRecord(parsed.item) ? parsed.item : null;
     if (item && typeof item.text === "string") {
       const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
