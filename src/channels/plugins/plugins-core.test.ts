@@ -27,7 +27,11 @@ import {
 } from "../../../extensions/whatsapp/src/directory-config.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { LineProbeResult } from "../../line/types.js";
-import { setActivePluginRegistry } from "../../plugins/runtime.js";
+import {
+  pinActivePluginChannelRegistry,
+  releasePinnedPluginChannelRegistry,
+  setActivePluginRegistry,
+} from "../../plugins/runtime.js";
 import {
   createChannelTestPluginBase,
   createMSTeamsTestPluginBase,
@@ -75,6 +79,7 @@ describe("channel plugin registry", () => {
   });
 
   afterEach(() => {
+    releasePinnedPluginChannelRegistry();
     setActivePluginRegistry(emptyRegistry);
   });
 
@@ -110,6 +115,23 @@ describe("channel plugin registry", () => {
       },
     ] as typeof registry.channels;
     setActivePluginRegistry(registry, "registry-test");
+
+    expect(listChannelPlugins().map((plugin) => plugin.id)).toEqual(["telegram"]);
+  });
+
+  it("keeps channel plugin lookups on the pinned startup registry after later registry swaps", () => {
+    const startupRegistry = createTestRegistry([
+      {
+        pluginId: "telegram",
+        plugin: createPlugin("telegram"),
+        source: "test",
+      },
+    ]);
+    const laterRegistry = createTestRegistry([]);
+
+    setActivePluginRegistry(startupRegistry, "startup-registry");
+    pinActivePluginChannelRegistry(startupRegistry);
+    setActivePluginRegistry(laterRegistry, "later-registry");
 
     expect(listChannelPlugins().map((plugin) => plugin.id)).toEqual(["telegram"]);
   });
@@ -369,6 +391,7 @@ describe("channel plugin loader", () => {
   });
 
   afterEach(() => {
+    releasePinnedPluginChannelRegistry();
     setActivePluginRegistry(emptyRegistry);
   });
 
