@@ -1,17 +1,25 @@
 import { ensureAuthProfileStore, listProfilesForProvider } from "openclaw/plugin-sdk/agent-runtime";
 import {
   definePluginEntry,
+  type OpenClawConfig,
   type ProviderAuthContext,
+  type ProviderAuthMethodNonInteractiveContext,
   type ProviderResolveDynamicModelContext,
   type ProviderRuntimeModel,
 } from "openclaw/plugin-sdk/core";
-import { coerceSecretRef } from "openclaw/plugin-sdk/provider-auth";
+import {
+  applyAuthProfileConfig,
+  coerceSecretRef,
+  normalizeSecretInput,
+  upsertAuthProfile,
+} from "openclaw/plugin-sdk/provider-auth";
 import { githubCopilotLoginCommand } from "openclaw/plugin-sdk/provider-auth-login";
 import { normalizeModelCompat } from "openclaw/plugin-sdk/provider-models";
 import { DEFAULT_COPILOT_API_BASE_URL, resolveCopilotApiToken } from "./token.js";
 import { fetchCopilotUsage } from "./usage.js";
 
 const PROVIDER_ID = "github-copilot";
+const DEFAULT_COPILOT_MODEL = "github-copilot/gpt-4o";
 const COPILOT_ENV_VARS = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
 const CODEX_GPT_53_MODEL_ID = "gpt-5.3-codex";
 const CODEX_TEMPLATE_MODEL_IDS = ["gpt-5.2-codex"] as const;
@@ -72,6 +80,73 @@ function resolveCopilotForwardCompatModel(
   return undefined;
 }
 
+function resolveGithubCopilotTokenFromFlagOrEnv(
+  opts: Record<string, unknown> | undefined,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  const flagValue = normalizeSecretInput(opts?.githubCopilotToken);
+  if (flagValue) {
+    return flagValue;
+  }
+  for (const envVar of COPILOT_ENV_VARS) {
+    const value = normalizeSecretInput(env[envVar]);
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+async function runGitHubCopilotNonInteractiveAuth(
+  ctx: ProviderAuthMethodNonInteractiveContext,
+): Promise<OpenClawConfig | null> {
+  const opts = ctx.opts as Record<string, unknown> | undefined;
+  const token = resolveGithubCopilotTokenFromFlagOrEnv(opts, process.env);
+  if (!token) {
+    ctx.runtime.error(
+      "Missing --github-copilot-token (or COPILOT_GITHUB_TOKEN / GH_TOKEN / GITHUB_TOKEN env var) for --auth-choice github-copilot.",
+    );
+    // runtime.exit throws; return guards the type.
+    ctx.runtime.exit(1);
+    return null;
+  }
+
+  const profileId = "github-copilot:github";
+  upsertAuthProfile({
+    profileId,
+    credential: {
+      type: "token",
+      provider: PROVIDER_ID,
+      token,
+    },
+    agentDir: ctx.agentDir,
+  });
+
+  let next = applyAuthProfileConfig(ctx.config, {
+    profileId,
+    provider: PROVIDER_ID,
+    mode: "token",
+  });
+
+  // Set default model to match interactive flow.
+  next = {
+    ...next,
+    agents: {
+      ...next.agents,
+      defaults: {
+        ...next.agents?.defaults,
+        model: { primary: DEFAULT_COPILOT_MODEL },
+        models: {
+          ...next.agents?.defaults?.models,
+          [DEFAULT_COPILOT_MODEL]: next.agents?.defaults?.models?.[DEFAULT_COPILOT_MODEL] ?? {},
+        },
+      },
+    },
+  };
+
+  return next;
+}
+
 async function runGitHubCopilotAuth(ctx: ProviderAuthContext) {
   await ctx.prompter.note(
     [
@@ -108,7 +183,7 @@ async function runGitHubCopilotAuth(ctx: ProviderAuthContext) {
         credential,
       },
     ],
-    defaultModel: "github-copilot/gpt-4o",
+    defaultModel: DEFAULT_COPILOT_MODEL,
   };
 }
 
@@ -129,6 +204,7 @@ export default definePluginEntry({
           hint: "Browser device-code flow",
           kind: "device_code",
           run: async (ctx) => await runGitHubCopilotAuth(ctx),
+          runNonInteractive: async (ctx) => await runGitHubCopilotNonInteractiveAuth(ctx),
         },
       ],
       wizard: {
