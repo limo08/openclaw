@@ -8,11 +8,13 @@ export async function postJson<T>(params: {
   body: unknown;
   errorPrefix: string;
   attachStatus?: boolean;
+  timeoutMs?: number;
   parse: (payload: unknown) => T | Promise<T>;
 }): Promise<T> {
   return await withRemoteHttpResponse({
     url: params.url,
     ssrfPolicy: params.ssrfPolicy,
+    timeoutMs: params.timeoutMs,
     init: {
       method: "POST",
       headers: params.headers,

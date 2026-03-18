@@ -8,6 +8,7 @@ export async function postJsonWithRetry<T>(params: {
   ssrfPolicy?: SsrFPolicy;
   body: unknown;
   errorPrefix: string;
+  timeoutMs?: number;
 }): Promise<T> {
   return await retryAsync(
     async () => {
@@ -18,6 +19,7 @@ export async function postJsonWithRetry<T>(params: {
         body: params.body,
         errorPrefix: params.errorPrefix,
         attachStatus: true,
+        timeoutMs: params.timeoutMs,
         parse: async (payload) => payload as T,
       });
     },

@@ -10,6 +10,7 @@ export async function uploadBatchJsonlFile(params: {
   client: BatchHttpClientConfig;
   requests: unknown[];
   errorPrefix: string;
+  timeoutMs?: number;
 }): Promise<string> {
   const baseUrl = normalizeBatchBaseUrl(params.client);
   const jsonl = params.requests.map((request) => JSON.stringify(request)).join("\n");
@@ -24,6 +25,7 @@ export async function uploadBatchJsonlFile(params: {
   const filePayload = await withRemoteHttpResponse({
     url: `${baseUrl}/files`,
     ssrfPolicy: params.client.ssrfPolicy,
+    timeoutMs: params.timeoutMs,
     init: {
       method: "POST",
       headers: buildBatchHeaders(params.client, { json: false }),

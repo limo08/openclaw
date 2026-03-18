@@ -36,6 +36,27 @@ describe("postJson", () => {
     expect(result).toEqual({ data: [{ embedding: [1, 2] }] });
   });
 
+  it("forwards timeoutMs to withRemoteHttpResponse", async () => {
+    remoteHttpMock.mockImplementationOnce(async (params) => {
+      return await params.onResponse(
+        new Response(JSON.stringify({}), { status: 200 }),
+      );
+    });
+
+    await postJson({
+      url: "https://memory.example/v1/post",
+      headers: {},
+      body: {},
+      errorPrefix: "post failed",
+      timeoutMs: 5000,
+      parse: (payload) => payload,
+    });
+
+    expect(remoteHttpMock).toHaveBeenCalledWith(
+      expect.objectContaining({ timeoutMs: 5000 }),
+    );
+  });
+
   it("attaches status to thrown error when requested", async () => {
     remoteHttpMock.mockImplementationOnce(async (params) => {
       return await params.onResponse(new Response("bad gateway", { status: 502 }));

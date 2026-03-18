@@ -24,6 +24,7 @@ export async function withRemoteHttpResponse<T>(params: {
   init?: RequestInit;
   ssrfPolicy?: SsrFPolicy;
   auditContext?: string;
+  timeoutMs?: number;
   onResponse: (response: Response) => Promise<T>;
 }): Promise<T> {
   const { response, release } = await fetchWithSsrFGuard({
@@ -31,6 +32,7 @@ export async function withRemoteHttpResponse<T>(params: {
     init: params.init,
     policy: params.ssrfPolicy,
     auditContext: params.auditContext ?? "memory-remote",
+    timeoutMs: params.timeoutMs,
   });
   try {
     return await params.onResponse(response);

@@ -76,6 +76,7 @@ async function submitGeminiBatch(params: {
   gemini: GeminiEmbeddingClient;
   requests: GeminiBatchRequest[];
   agentId: string;
+  timeoutMs?: number;
 }): Promise<GeminiBatchStatus> {
   const baseUrl = normalizeBatchBaseUrl(params.gemini);
   const jsonl = params.requests
@@ -98,6 +99,7 @@ async function submitGeminiBatch(params: {
   const filePayload = await withRemoteHttpResponse({
     url: uploadUrl,
     ssrfPolicy: params.gemini.ssrfPolicy,
+    timeoutMs: params.timeoutMs,
     init: {
       method: "POST",
       headers: {
@@ -136,6 +138,7 @@ async function submitGeminiBatch(params: {
   return await withRemoteHttpResponse({
     url: batchEndpoint,
     ssrfPolicy: params.gemini.ssrfPolicy,
+    timeoutMs: params.timeoutMs,
     init: {
       method: "POST",
       headers: buildBatchHeaders(params.gemini, { json: true }),
@@ -159,6 +162,7 @@ async function submitGeminiBatch(params: {
 async function fetchGeminiBatchStatus(params: {
   gemini: GeminiEmbeddingClient;
   batchName: string;
+  timeoutMs?: number;
 }): Promise<GeminiBatchStatus> {
   const baseUrl = normalizeBatchBaseUrl(params.gemini);
   const name = params.batchName.startsWith("batches/")
@@ -169,6 +173,7 @@ async function fetchGeminiBatchStatus(params: {
   return await withRemoteHttpResponse({
     url: statusUrl,
     ssrfPolicy: params.gemini.ssrfPolicy,
+    timeoutMs: params.timeoutMs,
     init: {
       headers: buildBatchHeaders(params.gemini, { json: true }),
     },
@@ -185,6 +190,7 @@ async function fetchGeminiBatchStatus(params: {
 async function fetchGeminiFileContent(params: {
   gemini: GeminiEmbeddingClient;
   fileId: string;
+  timeoutMs?: number;
 }): Promise<string> {
   const baseUrl = normalizeBatchBaseUrl(params.gemini);
   const file = params.fileId.startsWith("files/") ? params.fileId : `files/${params.fileId}`;
@@ -193,6 +199,7 @@ async function fetchGeminiFileContent(params: {
   return await withRemoteHttpResponse({
     url: downloadUrl,
     ssrfPolicy: params.gemini.ssrfPolicy,
+    timeoutMs: params.timeoutMs,
     init: {
       headers: buildBatchHeaders(params.gemini, { json: true }),
     },
@@ -234,6 +241,7 @@ async function waitForGeminiBatch(params: {
       (await fetchGeminiBatchStatus({
         gemini: params.gemini,
         batchName: params.batchName,
+        timeoutMs: params.timeoutMs,
       }));
     const state = status.state ?? "UNKNOWN";
     if (["SUCCEEDED", "COMPLETED", "DONE"].includes(state)) {
@@ -279,6 +287,7 @@ export async function runGeminiEmbeddingBatches(
         gemini: params.gemini,
         requests: group,
         agentId: params.agentId,
+        timeoutMs: params.timeoutMs,
       });
       const batchName = batchInfo.name ?? "";
       if (!batchName) {
@@ -328,6 +337,7 @@ export async function runGeminiEmbeddingBatches(
       const content = await fetchGeminiFileContent({
         gemini: params.gemini,
         fileId: completed.outputFileId,
+        timeoutMs: params.timeoutMs,
       });
       const outputLines = parseGeminiBatchOutput(content);
       const errors: string[] = [];
