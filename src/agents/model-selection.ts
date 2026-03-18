@@ -569,6 +569,34 @@ export function resolveAllowedModelRef(params: {
     defaultProvider: params.defaultProvider,
     defaultModel: params.defaultModel,
   });
+
+  // When the input has no provider prefix and the default-provider key is not
+  // in the allowlist, try to infer the provider from configured models.
+  // This handles cases like typing "gpt-4o-mini" when the allowlist only has
+  // "cs-openai/gpt-4o-mini" but the session default provider is "cs-anthropic".
+  // Use the raw trimmed input for inference instead of resolved.ref.model,
+  // because provider-specific normalization (e.g. "sonnet-4.6" → "claude-sonnet-4-6"
+  // for anthropic) may have altered the model name for the wrong provider.
+  if (!status.allowed && !trimmed.includes("/")) {
+    const inferredProvider = inferUniqueProviderFromConfiguredModels({
+      cfg: params.cfg,
+      model: trimmed,
+    });
+    if (inferredProvider) {
+      const inferredRef = normalizeModelRef(inferredProvider, trimmed);
+      const inferredStatus = getModelRefStatus({
+        cfg: params.cfg,
+        catalog: params.catalog,
+        ref: inferredRef,
+        defaultProvider: params.defaultProvider,
+        defaultModel: params.defaultModel,
+      });
+      if (inferredStatus.allowed) {
+        return { ref: inferredRef, key: inferredStatus.key };
+      }
+    }
+  }
+
   if (!status.allowed) {
     return { error: `model not allowed: ${status.key}` };
   }

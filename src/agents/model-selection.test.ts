@@ -454,6 +454,55 @@ describe("model-selection", () => {
       });
     });
 
+    it("infers provider from allowlist when bare model name has wrong default provider", () => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            model: { primary: "provider-a/model-primary" },
+            models: {
+              "provider-a/model-primary": {},
+              "provider-b/model-cheap": {},
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      const result = resolveAllowedModelRef({
+        cfg,
+        catalog: [],
+        raw: "model-cheap",
+        defaultProvider: "provider-a",
+      });
+
+      expect(result).toEqual({
+        key: "provider-b/model-cheap",
+        ref: { provider: "provider-b", model: "model-cheap" },
+      });
+    });
+
+    it("rejects bare model name when it matches multiple providers", () => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            model: { primary: "provider-a/model-x" },
+            models: {
+              "provider-a/model-x": {},
+              "provider-b/model-x": {},
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      const result = resolveAllowedModelRef({
+        cfg,
+        catalog: [],
+        raw: "model-x",
+        defaultProvider: "provider-c",
+      });
+
+      expect(result).toMatchObject({ error: expect.stringContaining("model not allowed") });
+    });
+
     it("strips trailing auth profile suffix before allowlist matching", () => {
       const cfg: OpenClawConfig = {
         agents: {
