@@ -1,7 +1,7 @@
 import {
   sendMessageWhatsApp as sendMessageWhatsAppImpl,
   sendPollWhatsApp as sendPollWhatsAppImpl,
-} from "openclaw/plugin-sdk/whatsapp";
+} from "../../../extensions/whatsapp/src/send.js";
 import type { PluginRuntime } from "./types.js";
 
 type RuntimeWhatsAppOutbound = Pick<

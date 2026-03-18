@@ -1,9 +1,9 @@
 import { join, parse } from "node:path";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-
-vi.mock("../../src/infra/wsl.js", () => ({
-  isWSL2Sync: () => false,
-}));
+import {
+  __resetOAuthFetchWithSsrfGuardForTest,
+  __setOAuthFetchWithSsrfGuardForTest,
+} from "./oauth.http.js";
 
 const fetchWithSsrFGuardMock = async (params: {
   url: string;
@@ -342,7 +342,6 @@ describe("loginGeminiCliOAuth", () => {
     delete process.env.GEMINI_CLI_OAUTH_CLIENT_SECRET;
     delete process.env.GOOGLE_CLOUD_PROJECT;
     delete process.env.GOOGLE_CLOUD_PROJECT_ID;
-    const { __setOAuthFetchWithSsrfGuardForTest } = await import("./oauth.http.js");
     __setOAuthFetchWithSsrfGuardForTest(fetchWithSsrFGuardMock);
   });
 
@@ -355,7 +354,6 @@ describe("loginGeminiCliOAuth", () => {
         process.env[key] = value;
       }
     }
-    const { __resetOAuthFetchWithSsrfGuardForTest } = await import("./oauth.http.js");
     __resetOAuthFetchWithSsrfGuardForTest();
     vi.unstubAllGlobals();
   });
