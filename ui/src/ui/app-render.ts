@@ -1373,6 +1373,7 @@ export function renderApp(state: AppViewState) {
                 messages: state.chatMessages,
                 toolMessages: state.chatToolMessages,
                 streamSegments: state.chatStreamSegments,
+                streamSegmentOffset: state.chatStreamSegmentOffset,
                 stream: state.chatStream,
                 streamStartedAt: state.chatStreamStartedAt,
                 draft: state.chatMessage,
