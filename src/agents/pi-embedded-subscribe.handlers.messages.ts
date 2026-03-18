@@ -310,7 +310,11 @@ export function handleMessageEnd(
   let cleanedText = parsedText?.text ?? "";
   let { mediaUrls, hasMedia } = resolveSendableOutboundReplyParts(parsedText ?? {});
 
-  if (!cleanedText && !hasMedia && !ctx.params.enforceFinalTag) {
+  // Fallback: If no cleaned text and no media, try to extract text from raw output.
+  // This runs when enforceFinalTag is false OR when enforceFinalTag is true but
+  // no <final> tag was found (to ensure TUI displays responses even without final tags).
+  const hasFinalTag = rawText && /<\s*final\s*>/i.test(rawText);
+  if (!cleanedText && !hasMedia && (!ctx.params.enforceFinalTag || !hasFinalTag)) {
     const rawTrimmed = rawText.trim();
     const rawStrippedFinal = rawTrimmed.replace(/<\s*\/?\s*final\s*>/gi, "").trim();
     const rawCandidate = rawStrippedFinal || rawTrimmed;
