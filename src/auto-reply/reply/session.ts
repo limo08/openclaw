@@ -24,6 +24,7 @@ import {
   resolveSessionKey,
   resolveSessionTranscriptPath,
   resolveStorePath,
+  DEFAULT_SESSION_HISTORY_LIMIT,
   type SessionEntry,
   type SessionHistoryItem,
   type SessionScope,
@@ -52,8 +53,6 @@ import { forkSessionFromParent, resolveParentForkMaxTokens } from "./session-for
 import { buildSessionEndHookPayload, buildSessionStartHookPayload } from "./session-hooks.js";
 
 const log = createSubsystemLogger("session-init");
-
-const DEFAULT_SESSION_HISTORY_LIMIT = 5;
 
 /**
  * Push the current sessionId into the session history queue (LRU).
@@ -590,13 +589,15 @@ export async function initSessionState(params: {
   sessionEntry = resolvedSessionFile.sessionEntry;
   let evictedFromHistory: SessionHistoryItem[] = [];
   if (isNewSession) {
-    if (previousSessionEntry?.sessionId) {
+    if (previousSessionEntry?.sessionId && historyLimit > 0) {
       const historyCarrier: SessionEntry = {
         ...previousSessionEntry,
         sessionHistory: [...(previousSessionEntry.sessionHistory ?? [])],
       };
       evictedFromHistory = pushSessionHistory(historyCarrier, historyLimit);
       sessionEntry.sessionHistory = historyCarrier.sessionHistory;
+    } else if (historyLimit === 0) {
+      sessionEntry.sessionHistory = [];
     }
     sessionEntry.compactionCount = 0;
     sessionEntry.memoryFlushCompactionCount = undefined;

@@ -2,7 +2,11 @@ import { resolveFastModeState } from "../../agents/fast-mode.js";
 import { formatThreadBindingDurationLabel } from "../../channels/thread-bindings-messages.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { isRestartEnabled } from "../../config/commands.js";
-import type { SessionEntry, SessionHistoryItem } from "../../config/sessions.js";
+import {
+  DEFAULT_SESSION_HISTORY_LIMIT,
+  type SessionEntry,
+  type SessionHistoryItem,
+} from "../../config/sessions.js";
 import { readSessionPreviewItemsFromTranscript } from "../../gateway/session-utils.fs.js";
 import { archiveSessionTranscripts } from "../../gateway/session-utils.fs.js";
 import { logVerbose } from "../../globals.js";
@@ -24,7 +28,6 @@ import { resolveTelegramConversationId } from "./telegram-context.js";
 
 const SESSION_COMMAND_PREFIX = "/session";
 const SESSIONS_COMMAND = "/sessions";
-const DEFAULT_SESSION_HISTORY_LIMIT = 5;
 const SESSION_DURATION_OFF_VALUES = new Set(["off", "disable", "disabled", "none", "0"]);
 const SESSION_ACTION_IDLE = "idle";
 const SESSION_ACTION_MAX_AGE = "max-age";
@@ -628,10 +631,6 @@ export const handleSessionCommand: CommandHandler = async (params, allowTextComm
     params.sessionEntry.sessionId = target.sessionId;
     params.sessionEntry.sessionFile = undefined;
     params.sessionEntry.sessionHistory = nextHistory;
-    params.sessionEntry.totalTokens = undefined;
-    params.sessionEntry.inputTokens = undefined;
-    params.sessionEntry.outputTokens = undefined;
-    params.sessionEntry.contextTokens = undefined;
     applyHistoryMetadata(params.sessionEntry, target.metadata);
     await persistSessionEntry(params);
 

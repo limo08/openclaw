@@ -26,6 +26,8 @@ export type SessionAcpIdentitySource = "ensure" | "status" | "event";
 
 export type SessionAcpIdentityState = "pending" | "resolved";
 
+export const DEFAULT_SESSION_HISTORY_LIMIT = 5;
+
 export type SessionAcpIdentity = {
   state: SessionAcpIdentityState;
   acpxRecordId?: string;
