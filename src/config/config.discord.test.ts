@@ -59,7 +59,7 @@ describe("config discord", () => {
     );
   });
 
-  it("rejects numeric discord allowlist entries", () => {
+  it("coerces numeric discord allowlist entries to strings", () => {
     const res = validateConfigObject({
       channels: {
         discord: {
@@ -79,11 +79,40 @@ describe("config discord", () => {
       },
     });
 
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.config.channels?.discord?.allowFrom).toEqual(["123"]);
+      expect(res.config.channels?.discord?.dm?.allowFrom).toEqual(["456"]);
+      expect(res.config.channels?.discord?.dm?.groupChannels).toEqual(["789"]);
+      expect(res.config.channels?.discord?.guilds?.["123"]?.users).toEqual(["111"]);
+      expect(res.config.channels?.discord?.guilds?.["123"]?.roles).toEqual(["222"]);
+      expect(res.config.channels?.discord?.guilds?.["123"]?.channels?.general?.users).toEqual([
+        "333",
+      ]);
+      expect(res.config.channels?.discord?.guilds?.["123"]?.channels?.general?.roles).toEqual([
+        "444",
+      ]);
+      expect(res.config.channels?.discord?.execApprovals?.approvers).toEqual(["555"]);
+    }
+  });
+
+  it("rejects large numeric discord IDs that exceed MAX_SAFE_INTEGER", () => {
+    // Discord snowflake IDs can exceed Number.MAX_SAFE_INTEGER (2^53-1).
+    // When JSON-parsed without quotes they become numbers and lose precision,
+    // resulting in a silently wrong ID. The schema must reject these so the
+    // user gets a clear error telling them to quote the value.
+    const largeId = Number("1234567890123456789");
+    const res = validateConfigObject({
+      channels: {
+        discord: {
+          allowFrom: [largeId],
+        },
+      },
+    });
+
     expect(res.ok).toBe(false);
     if (!res.ok) {
-      expect(
-        res.issues.some((issue) => issue.message.includes("Discord IDs must be strings")),
-      ).toBe(true);
+      expect(res.issues.some((issue) => issue.message.includes("lose precision"))).toBe(true);
     }
   });
 });
