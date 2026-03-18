@@ -14,6 +14,7 @@ type RejectedCredentialEntry = { key: string; reason: CredentialRejectReason };
 type LoadAuthProfileStoreOptions = {
   allowKeychainPrompt?: boolean;
   readOnly?: boolean;
+  skipInheritance?: boolean;
 };
 
 const AUTH_PROFILE_TYPES = new Set<AuthProfileCredential["type"]>(["api_key", "oauth", "token"]);
@@ -79,6 +80,7 @@ export function clearRuntimeAuthProfileStoreSnapshots(): void {
 
 export async function updateAuthProfileStoreWithLock(params: {
   agentDir?: string;
+  agentLocalOnly?: boolean;
   updater: (store: AuthProfileStore) => boolean;
 }): Promise<AuthProfileStore | null> {
   const authPath = resolveAuthStorePath(params.agentDir);
@@ -86,7 +88,9 @@ export async function updateAuthProfileStoreWithLock(params: {
 
   try {
     return await withFileLock(authPath, AUTH_STORE_LOCK_OPTIONS, async () => {
-      const store = ensureAuthProfileStore(params.agentDir);
+      const store = params.agentLocalOnly
+        ? loadAgentLocalAuthProfileStore(params.agentDir)
+        : ensureAuthProfileStore(params.agentDir);
       const shouldSave = params.updater(store);
       if (shouldSave) {
         saveAuthProfileStore(store, params.agentDir);
@@ -381,15 +385,18 @@ function loadAuthProfileStoreForAgent(
   if (asStore) {
     // Runtime secret activation must remain read-only:
     // sync external CLI credentials in-memory, but never persist while readOnly.
-    const synced = syncExternalCliCredentials(asStore, { log: !readOnly });
+    const synced = syncExternalCliCredentials(asStore);
     if (synced && !readOnly) {
       saveJsonFile(authPath, asStore);
     }
     return asStore;
   }
 
-  // Fallback: inherit auth-profiles from main agent if subagent has none
-  if (agentDir && !readOnly) {
+  // Fallback: inherit auth-profiles from main agent if subagent has none.
+  // Skipped when skipInheritance:true (e.g. auth-clean pre-lock migration trigger)
+  // to prevent materialising main credentials in the subagent file before cleanup
+  // runs — that would cause scope bleed and a misleading no-op clean. (#2915653312)
+  if (agentDir && !readOnly && !options?.skipInheritance) {
     const mainAuthPath = resolveAuthStorePath(); // without agentDir = main
     const mainRaw = loadJsonFile(mainAuthPath);
     const mainStore = coerceAuthStore(mainRaw);
@@ -413,7 +420,7 @@ function loadAuthProfileStoreForAgent(
 
   const mergedOAuth = mergeOAuthFileIntoStore(store);
   // Keep external CLI credentials visible in runtime even during read-only loads.
-  const syncedCli = syncExternalCliCredentials(store, { log: !readOnly });
+  const syncedCli = syncExternalCliCredentials(store);
   const forceReadOnly = process.env.OPENCLAW_AUTH_STORE_READONLY === "1";
   const shouldWrite = !readOnly && !forceReadOnly && (legacy !== null || mergedOAuth || syncedCli);
   if (shouldWrite) {
@@ -455,13 +462,25 @@ export function loadAuthProfileStoreForRuntime(
   return mergeAuthProfileStores(mainStore, store);
 }
 
+/**
+ * Load auth-profile store for a specific agent directory without inheriting
+ * from the main agent. Used by `models auth clean` to inspect per-agent
+ * credentials independently.
+ */
+export function loadAgentLocalAuthProfileStore(
+  agentDir?: string,
+  options?: LoadAuthProfileStoreOptions,
+): AuthProfileStore {
+  return loadAuthProfileStoreForAgent(agentDir, { ...options, skipInheritance: true });
+}
+
 export function loadAuthProfileStoreForSecretsRuntime(agentDir?: string): AuthProfileStore {
   return loadAuthProfileStoreForRuntime(agentDir, { readOnly: true, allowKeychainPrompt: false });
 }
 
 export function ensureAuthProfileStore(
   agentDir?: string,
-  options?: { allowKeychainPrompt?: boolean },
+  options?: { allowKeychainPrompt?: boolean; readOnly?: boolean },
 ): AuthProfileStore {
   const runtimeStore = resolveRuntimeAuthProfileStore(agentDir);
   if (runtimeStore) {
