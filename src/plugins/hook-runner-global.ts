@@ -33,7 +33,10 @@ function getHookRunnerGlobalState(): HookRunnerGlobalState {
  * Initialize the global hook runner with a plugin registry.
  * Called once when plugins are loaded during gateway startup.
  */
-export function initializeGlobalHookRunner(registry: PluginRegistry): void {
+export function initializeGlobalHookRunner(
+  registry: PluginRegistry,
+  options?: { hookTimeoutMs?: number },
+): void {
   const state = getHookRunnerGlobalState();
   state.registry = registry;
   state.hookRunner = createHookRunner(registry, {
@@ -43,6 +46,7 @@ export function initializeGlobalHookRunner(registry: PluginRegistry): void {
       error: (msg) => log.error(msg),
     },
     catchErrors: true,
+    hookTimeoutMs: options?.hookTimeoutMs,
   });
 
   const hookCount = registry.hooks.length;
