@@ -749,6 +749,7 @@ export function getSessionDefaults(cfg: OpenClawConfig): GatewaySessionsDefaults
     modelProvider: resolved.provider ?? null,
     model: resolved.model ?? null,
     contextTokens: contextTokens ?? null,
+    verboseDefault: cfg.agents?.defaults?.verboseDefault ?? null,
   };
 }
 
