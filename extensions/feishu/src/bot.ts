@@ -415,6 +415,7 @@ export async function handleFeishuMessage(params: {
 
     ({ requireMention } = resolveFeishuReplyPolicy({
       isDirectMessage: false,
+      isThreadReply: groupSession?.threadReply,
       globalConfig: feishuCfg,
       groupConfig,
     }));
