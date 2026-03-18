@@ -24,6 +24,7 @@ type OnLogFunction = InputOptionsArg extends { onLog?: infer OnLog } ? NonNullab
 const env = {
   NODE_ENV: "production",
 };
+const OUTPUT_SOURCE_MAPS = process.env.OUTPUT_SOURCE_MAPS === "1";
 
 function buildInputOptions(options: InputOptionsArg): InputOptionsReturn {
   if (process.env.OPENCLAW_BUILD_VERBOSE === "1") {
@@ -70,6 +71,7 @@ function nodeBuildConfig(config: UserConfig): UserConfig {
     env,
     fixedExtension: false,
     platform: "node",
+    sourcemap: OUTPUT_SOURCE_MAPS,
     inputOptions: buildInputOptions,
   };
 }
