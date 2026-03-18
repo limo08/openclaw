@@ -35,6 +35,7 @@ type EmbeddedRunParams = {
 };
 
 const state = vi.hoisted(() => ({
+  compactEmbeddedPiSessionMock: vi.fn(),
   runEmbeddedPiAgentMock: vi.fn(),
   runCliAgentMock: vi.fn(),
 }));
@@ -71,6 +72,7 @@ vi.mock("../../agents/model-fallback.js", () => ({
 }));
 
 vi.mock("../../agents/pi-embedded.js", () => ({
+  compactEmbeddedPiSession: (params: unknown) => state.compactEmbeddedPiSessionMock(params),
   queueEmbeddedPiMessage: vi.fn().mockReturnValue(false),
   runEmbeddedPiAgent: (params: unknown) => state.runEmbeddedPiAgentMock(params),
 }));
@@ -92,6 +94,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  state.compactEmbeddedPiSessionMock.mockClear();
   state.runEmbeddedPiAgentMock.mockClear();
   state.runCliAgentMock.mockClear();
   vi.mocked(enqueueFollowupRun).mockClear();
@@ -1629,6 +1632,87 @@ describe("runReplyAgent memory flush", () => {
       const call = state.runCliAgentMock.mock.calls[0]?.[0] as { prompt?: string } | undefined;
       expect(call?.prompt).toBe("hello");
       expect(state.runEmbeddedPiAgentMock).not.toHaveBeenCalled();
+    });
+  });
+
+  it("runs preflight compaction when transcript-estimated tokens cross the threshold", async () => {
+    await withTempStore(async (storePath) => {
+      const sessionKey = "main";
+      const sessionFile = "session-relative.jsonl";
+      const transcriptPath = path.join(path.dirname(storePath), sessionFile);
+      await fs.mkdir(path.dirname(transcriptPath), { recursive: true });
+      await fs.writeFile(
+        transcriptPath,
+        `${JSON.stringify({
+          message: {
+            role: "user",
+            content: "x".repeat(320_000),
+            timestamp: Date.now(),
+          },
+        })}\n`,
+        "utf-8",
+      );
+
+      const sessionEntry: SessionEntry = {
+        sessionId: "session",
+        updatedAt: Date.now(),
+        sessionFile,
+        totalTokens: 10,
+        totalTokensFresh: false,
+        compactionCount: 1,
+      };
+
+      await seedSessionStore({ storePath, sessionKey, entry: sessionEntry });
+
+      state.compactEmbeddedPiSessionMock.mockResolvedValueOnce({
+        ok: true,
+        compacted: true,
+        result: {
+          summary: "compacted",
+          firstKeptEntryId: "first-kept",
+          tokensBefore: 90_000,
+          tokensAfter: 8_000,
+        },
+      });
+      const calls: Array<{ prompt?: string }> = [];
+      state.runEmbeddedPiAgentMock.mockImplementation(async (params: EmbeddedRunParams) => {
+        calls.push({ prompt: params.prompt });
+        return {
+          payloads: [{ text: "ok" }],
+          meta: { agentMeta: { usage: { input: 1, output: 1 } } },
+        };
+      });
+
+      const baseRun = createBaseRun({
+        storePath,
+        sessionEntry,
+        runOverrides: { sessionFile },
+      });
+
+      await runReplyAgentWithBase({
+        baseRun,
+        storePath,
+        sessionKey,
+        sessionEntry,
+        commandBody: "hello",
+      });
+
+      expect(state.compactEmbeddedPiSessionMock).toHaveBeenCalledOnce();
+      expect(state.compactEmbeddedPiSessionMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: "session",
+          sessionKey,
+          trigger: "budget",
+          currentTokenCount: expect.any(Number),
+          sessionFile: transcriptPath,
+        }),
+      );
+      expect(calls.map((call) => call.prompt)).toEqual(["hello"]);
+
+      const stored = JSON.parse(await fs.readFile(storePath, "utf-8"));
+      expect(stored[sessionKey].compactionCount).toBe(2);
+      expect(stored[sessionKey].totalTokens).toBe(8_000);
+      expect(stored[sessionKey].totalTokensFresh).toBe(true);
     });
   });
 
