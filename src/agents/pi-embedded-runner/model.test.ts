@@ -5,6 +5,7 @@ vi.mock("../pi-model-discovery.js", () => ({
   discoverModels: vi.fn(() => ({ find: vi.fn(() => null) })),
 }));
 
+import { discoverModels } from "../pi-model-discovery.js";
 import type { OpenRouterModelCapabilities } from "./openrouter-model-capabilities.js";
 
 const mockGetOpenRouterModelCapabilities = vi.fn<
@@ -20,6 +21,7 @@ vi.mock("./openrouter-model-capabilities.js", () => ({
 }));
 
 import type { OpenClawConfig } from "../../config/config.js";
+import * as providerRuntime from "../../plugins/provider-runtime.js";
 import { buildInlineProviderModels, resolveModel, resolveModelAsync } from "./model.js";
 import {
   buildOpenAICodexForwardCompatExpectation,
@@ -429,10 +431,328 @@ describe("resolveModel", () => {
       provider: "openrouter",
       id: "openrouter/healer-alpha",
       reasoning: true,
+      contextWindow: 262144,
+      maxTokens: 65536,
+    });
+  });
+
+  it("normalizes same-provider qualified refs before provider fallback matching", () => {
+    const cfg = {
+      models: {
+        providers: {
+          polza: {
+            baseUrl: "https://proxy.example/v1",
+            headers: { "X-Provider": "provider" },
+            models: [
+              {
+                ...makeModel("gpt-4o-mini"),
+                reasoning: true,
+                contextWindow: 123456,
+                maxTokens: 4096,
+                headers: { "X-Model": "special" },
+              },
+            ],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = resolveModel("polza", "polza/gpt-4o-mini", "/tmp/agent", cfg);
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "polza",
+      id: "gpt-4o-mini",
+      reasoning: true,
+      contextWindow: 123456,
+      maxTokens: 4096,
+    });
+    expect((result.model as unknown as { headers?: Record<string, string> }).headers).toEqual({
+      "X-Provider": "provider",
+      "X-Model": "special",
+    });
+
+    const uppercasePrefixResult = resolveModel("polza", "POLZA/gpt-4o-mini", "/tmp/agent", cfg);
+
+    expect(uppercasePrefixResult.error).toBeUndefined();
+    expect(uppercasePrefixResult.model).toMatchObject({
+      provider: "polza",
+      id: "gpt-4o-mini",
+      reasoning: true,
+      contextWindow: 123456,
+      maxTokens: 4096,
+    });
+  });
+
+  it("preserves exact qualified overrides when alternate explicit lookup resolves a bare registry id", () => {
+    mockDiscoveredModel({
+      provider: "polza",
+      modelId: "gpt-4o-mini",
+      templateModel: {
+        ...makeModel("gpt-4o-mini"),
+        provider: "polza",
+        api: "openai-completions",
+        baseUrl: "https://proxy.example/v1",
+      },
+    });
+
+    const cfg = {
+      models: {
+        providers: {
+          polza: {
+            baseUrl: "https://proxy.example/v1",
+            api: "openai-completions",
+            headers: { "X-Provider": "provider" },
+            models: [
+              {
+                ...makeModel("polza/gpt-4o-mini"),
+                reasoning: true,
+                contextWindow: 123456,
+                maxTokens: 4096,
+                headers: { "X-Model": "special" },
+              },
+            ],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = resolveModel("polza", "polza/gpt-4o-mini", "/tmp/agent", cfg);
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "polza",
+      id: "gpt-4o-mini",
+      reasoning: true,
+      contextWindow: 123456,
+      maxTokens: 4096,
+    });
+    expect((result.model as unknown as { headers?: Record<string, string> }).headers).toEqual({
+      "X-Provider": "provider",
+      "X-Model": "special",
+    });
+  });
+
+  it("prefers the requested ref over fallback alternates in provider-config lookup", () => {
+    const cfg = {
+      models: {
+        providers: {
+          polza: {
+            baseUrl: "https://proxy.example/v1",
+            headers: { "X-Provider": "provider" },
+            models: [
+              {
+                ...makeModel("gpt-4o-mini"),
+                reasoning: false,
+                contextWindow: 1024,
+                maxTokens: 512,
+                headers: { "X-Model": "bare" },
+              },
+              {
+                ...makeModel("polza/gpt-4o-mini"),
+                reasoning: true,
+                contextWindow: 123456,
+                maxTokens: 4096,
+                headers: { "X-Model": "qualified" },
+              },
+            ],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = resolveModel("polza", "polza/gpt-4o-mini", "/tmp/agent", cfg);
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "polza",
+      id: "gpt-4o-mini",
+      reasoning: true,
+      contextWindow: 123456,
+      maxTokens: 4096,
+    });
+    expect((result.model as unknown as { headers?: Record<string, string> }).headers).toEqual({
+      "X-Provider": "provider",
+      "X-Model": "qualified",
+    });
+  });
+
+  it("keeps OpenRouter native ids qualified when fallback config uses bare ids", () => {
+    const cfg = {
+      models: {
+        providers: {
+          openrouter: {
+            baseUrl: "https://openrouter.ai/api/v1",
+            api: "openai-completions",
+            models: [
+              {
+                ...makeModel("healer-alpha"),
+                reasoning: true,
+                input: ["text", "image"],
+                contextWindow: 262144,
+                maxTokens: 65536,
+              },
+            ],
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = resolveModel("openrouter", "openrouter/healer-alpha", "/tmp/agent", cfg);
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "openrouter",
+      id: "openrouter/healer-alpha",
+      reasoning: true,
       input: ["text", "image"],
       contextWindow: 262144,
       maxTokens: 65536,
     });
+  });
+
+  it("keeps NVIDIA native ids qualified when fallback config uses exact qualified ids", () => {
+    vi.mocked(discoverModels).mockReturnValue({
+      find: vi.fn(() => null),
+      getAll: vi.fn(() => [
+        {
+          ...makeModel("nvidia/llama-3.1-nemotron-70b-instruct"),
+          provider: "nvidia",
+          api: "openai-completions",
+          baseUrl: "https://integrate.api.nvidia.com/v1",
+        },
+      ]),
+    } as unknown as ReturnType<typeof discoverModels>);
+
+    const cfg = {
+      models: {
+        providers: {
+          nvidia: {
+            baseUrl: "https://integrate.api.nvidia.com/v1",
+            models: [
+              {
+                ...makeModel("nvidia/llama-3.1-nemotron-70b-instruct"),
+                reasoning: true,
+                contextWindow: 128000,
+                maxTokens: 8192,
+                headers: { "X-Model": "special" },
+              },
+            ],
+            headers: { "X-Provider": "provider" },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = resolveModel(
+      "nvidia",
+      "nvidia/llama-3.1-nemotron-70b-instruct",
+      "/tmp/agent",
+      cfg,
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "nvidia",
+      id: "nvidia/llama-3.1-nemotron-70b-instruct",
+      api: "openai-responses",
+      reasoning: true,
+      contextWindow: 128000,
+      maxTokens: 8192,
+    });
+    expect((result.model as unknown as { headers?: Record<string, string> }).headers).toEqual({
+      "X-Provider": "provider",
+      "X-Model": "special",
+    });
+  });
+
+  it("preserves qualified OpenRouter model overrides when provider api is implicit", () => {
+    const cfg = {
+      models: {
+        providers: {
+          openrouter: {
+            baseUrl: "https://openrouter.ai/api/v1",
+            models: [
+              {
+                ...makeModel("openrouter/healer-alpha"),
+                reasoning: true,
+                contextWindow: 262144,
+                maxTokens: 65536,
+                headers: { "X-Model": "special" },
+              },
+            ],
+            headers: { "X-Provider": "provider" },
+          },
+        },
+      },
+    } as OpenClawConfig;
+
+    const result = resolveModel("openrouter", "openrouter/healer-alpha", "/tmp/agent", cfg);
+
+    expect(result.error).toBeUndefined();
+    expect(result.model).toMatchObject({
+      provider: "openrouter",
+      id: "openrouter/healer-alpha",
+      api: "openai-responses",
+      reasoning: true,
+      contextWindow: 262144,
+      maxTokens: 65536,
+    });
+    expect((result.model as unknown as { headers?: Record<string, string> }).headers).toEqual({
+      "X-Provider": "provider",
+      "X-Model": "special",
+    });
+  });
+
+  it("normalizes same-provider qualified ids before dynamic model hooks", async () => {
+    const resolvePluginSpy = vi
+      .spyOn(providerRuntime, "resolveProviderRuntimePlugin")
+      .mockReturnValue({ id: "polza-plugin", prepareDynamicModel: async () => {} } as never);
+    const prepareSpy = vi
+      .spyOn(providerRuntime, "prepareProviderDynamicModel")
+      .mockResolvedValue(undefined);
+    const runSpy = vi.spyOn(providerRuntime, "runProviderDynamicModel").mockReturnValue(undefined);
+    try {
+      const cfg = {
+        models: {
+          providers: {
+            polza: {
+              baseUrl: "https://proxy.example/v1",
+              api: "openai-completions",
+              models: [],
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      const result = await resolveModelAsync("polza", "polza/gpt-4o-mini", "/tmp/agent", cfg);
+
+      expect(prepareSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "polza",
+          context: expect.objectContaining({
+            modelId: "gpt-4o-mini",
+          }),
+        }),
+      );
+      expect(runSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "polza",
+          context: expect.objectContaining({
+            modelId: "gpt-4o-mini",
+          }),
+        }),
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.model).toMatchObject({
+        provider: "polza",
+        id: "gpt-4o-mini",
+      });
+    } finally {
+      runSpy.mockRestore();
+      prepareSpy.mockRestore();
+      resolvePluginSpy.mockRestore();
+    }
   });
 
   it("uses OpenRouter API capabilities for unknown models when cache is populated", () => {

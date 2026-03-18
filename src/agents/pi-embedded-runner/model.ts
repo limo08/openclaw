@@ -96,9 +96,9 @@ function resolveConfiguredProviderConfig(
 function applyConfiguredProviderOverrides(params: {
   discoveredModel: Model<Api>;
   providerConfig?: InlineProviderConfig;
-  modelId: string;
+  modelIds: string[];
 }): Model<Api> {
-  const { discoveredModel, providerConfig, modelId } = params;
+  const { discoveredModel, providerConfig, modelIds } = params;
   if (!providerConfig) {
     return {
       ...discoveredModel,
@@ -106,7 +106,9 @@ function applyConfiguredProviderOverrides(params: {
       headers: sanitizeModelHeaders(discoveredModel.headers, { stripSecretRefMarkers: true }),
     };
   }
-  const configuredModel = providerConfig.models?.find((candidate) => candidate.id === modelId);
+  const configuredModel = modelIds
+    .map((modelId) => providerConfig.models?.find((candidate) => candidate.id === modelId))
+    .find((candidate) => candidate !== undefined);
   const discoveredHeaders = sanitizeModelHeaders(discoveredModel.headers, {
     stripSecretRefMarkers: true,
   });
@@ -187,8 +189,10 @@ function resolveExplicitModelWithRegistry(params: {
   modelRegistry: ModelRegistry;
   cfg?: OpenClawConfig;
   agentDir?: string;
+  configuredModelIds?: string[];
 }): { kind: "resolved"; model: Model<Api> } | { kind: "suppressed" } | undefined {
   const { provider, modelId, modelRegistry, cfg, agentDir } = params;
+  const configuredModelIds = params.configuredModelIds ?? [modelId];
   if (shouldSuppressBuiltInModel({ provider, id: modelId })) {
     return { kind: "suppressed" };
   }
@@ -205,7 +209,7 @@ function resolveExplicitModelWithRegistry(params: {
         model: applyConfiguredProviderOverrides({
           discoveredModel: model,
           providerConfig,
-          modelId,
+          modelIds: configuredModelIds,
         }),
       }),
     };
@@ -232,6 +236,55 @@ function resolveExplicitModelWithRegistry(params: {
   return undefined;
 }
 
+function stripSameProviderPrefix(params: { provider: string; modelId: string }): string {
+  const providerId = normalizeProviderId(params.provider);
+  const modelId = params.modelId.trim();
+  if (!providerId || !modelId) {
+    return modelId;
+  }
+  const prefix = `${providerId}/`;
+  const separatorIndex = modelId.indexOf("/");
+  if (separatorIndex < 0) {
+    return modelId;
+  }
+  return modelId.slice(0, separatorIndex + 1).toLowerCase() === prefix
+    ? modelId.slice(separatorIndex + 1)
+    : modelId;
+}
+
+function providerHasQualifiedNativeModelIds(params: {
+  provider: string;
+  modelRegistry: Pick<ModelRegistry, "getAll"> | Partial<Pick<ModelRegistry, "getAll">>;
+}): boolean {
+  const normalizedProvider = normalizeProviderId(params.provider);
+  if (!normalizedProvider) {
+    return false;
+  }
+  const prefix = `${normalizedProvider}/`;
+  const models = params.modelRegistry.getAll?.() ?? [];
+  return models.some(
+    (model) =>
+      normalizeProviderId(model.provider) === normalizedProvider &&
+      model.id.toLowerCase().startsWith(prefix),
+  );
+}
+
+function resolveSameProviderModelIds(params: {
+  provider: string;
+  modelId: string;
+  preserveQualifiedModelId?: boolean;
+}) {
+  const alternateModelId = stripSameProviderPrefix(params);
+  const preserveQualifiedModelId =
+    params.preserveQualifiedModelId === true && alternateModelId !== params.modelId;
+  return {
+    alternateModelId,
+    fallbackLookupModelId: alternateModelId,
+    runtimeModelId: preserveQualifiedModelId ? params.modelId : alternateModelId,
+    shouldTryAlternateExplicit: !preserveQualifiedModelId && alternateModelId !== params.modelId,
+  };
+}
+
 export function resolveModelWithRegistry(params: {
   provider: string;
   modelId: string;
@@ -247,16 +300,40 @@ export function resolveModelWithRegistry(params: {
     return explicitModel.model;
   }
 
-  const { provider, modelId, cfg, modelRegistry, agentDir } = params;
+  const preserveQualifiedModelId = providerHasQualifiedNativeModelIds({
+    provider: params.provider,
+    modelRegistry: params.modelRegistry,
+  });
+  const { alternateModelId, fallbackLookupModelId, runtimeModelId, shouldTryAlternateExplicit } =
+    resolveSameProviderModelIds({
+      provider: params.provider,
+      modelId: params.modelId,
+      preserveQualifiedModelId,
+    });
+  if (shouldTryAlternateExplicit) {
+    const alternateExplicitModel = resolveExplicitModelWithRegistry({
+      ...params,
+      modelId: alternateModelId,
+      configuredModelIds: [params.modelId, alternateModelId],
+    });
+    if (alternateExplicitModel?.kind === "suppressed") {
+      return undefined;
+    }
+    if (alternateExplicitModel?.kind === "resolved") {
+      return alternateExplicitModel.model;
+    }
+  }
+
+  const { provider, cfg, modelRegistry, agentDir } = params;
   const providerConfig = resolveConfiguredProviderConfig(cfg, provider);
   const pluginDynamicModel = runProviderDynamicModel({
-    provider,
+    provider: params.provider,
     config: cfg,
     context: {
       config: cfg,
       agentDir,
       provider,
-      modelId,
+      modelId: runtimeModelId,
       modelRegistry,
       providerConfig,
     },
@@ -270,21 +347,26 @@ export function resolveModelWithRegistry(params: {
     });
   }
 
-  const configuredModel = providerConfig?.models?.find((candidate) => candidate.id === modelId);
+  const fallbackModelId = fallbackLookupModelId;
+  const configuredModelLookupIds =
+    params.modelId === fallbackModelId ? [fallbackModelId] : [params.modelId, fallbackModelId];
+  const configuredModel = configuredModelLookupIds
+    .map((candidateId) => providerConfig?.models?.find((candidate) => candidate.id === candidateId))
+    .find((candidate) => candidate !== undefined);
   const providerHeaders = sanitizeModelHeaders(providerConfig?.headers, {
     stripSecretRefMarkers: true,
   });
   const modelHeaders = sanitizeModelHeaders(configuredModel?.headers, {
     stripSecretRefMarkers: true,
   });
-  if (providerConfig || modelId.startsWith("mock-")) {
+  if (providerConfig || fallbackModelId.startsWith("mock-")) {
     return normalizeResolvedModel({
       provider,
       cfg,
       agentDir,
       model: {
-        id: modelId,
-        name: modelId,
+        id: runtimeModelId,
+        name: runtimeModelId,
         api: providerConfig?.api ?? "openai-responses",
         provider,
         baseUrl: providerConfig?.baseUrl,
@@ -354,6 +436,16 @@ export async function resolveModelAsync(
   const resolvedAgentDir = agentDir ?? resolveOpenClawAgentDir();
   const authStorage = discoverAuthStorage(resolvedAgentDir);
   const modelRegistry = discoverModels(authStorage, resolvedAgentDir);
+  const preserveQualifiedModelId = providerHasQualifiedNativeModelIds({
+    provider,
+    modelRegistry,
+  });
+  const { alternateModelId, runtimeModelId, shouldTryAlternateExplicit } =
+    resolveSameProviderModelIds({
+      provider,
+      modelId,
+      preserveQualifiedModelId,
+    });
   const explicitModel = resolveExplicitModelWithRegistry({
     provider,
     modelId,
@@ -368,6 +460,31 @@ export async function resolveModelAsync(
       modelRegistry,
     };
   }
+  if (explicitModel?.kind === "resolved") {
+    return { model: explicitModel.model, authStorage, modelRegistry };
+  }
+
+  if (shouldTryAlternateExplicit) {
+    const alternateExplicitModel = resolveExplicitModelWithRegistry({
+      provider,
+      modelId: alternateModelId,
+      modelRegistry,
+      cfg,
+      agentDir: resolvedAgentDir,
+      configuredModelIds: [modelId, alternateModelId],
+    });
+    if (alternateExplicitModel?.kind === "suppressed") {
+      return {
+        error: buildUnknownModelError(provider, modelId),
+        authStorage,
+        modelRegistry,
+      };
+    }
+    if (alternateExplicitModel?.kind === "resolved") {
+      return { model: alternateExplicitModel.model, authStorage, modelRegistry };
+    }
+  }
+
   if (!explicitModel) {
     const providerPlugin = resolveProviderRuntimePlugin({
       provider,
@@ -381,23 +498,20 @@ export async function resolveModelAsync(
           config: cfg,
           agentDir: resolvedAgentDir,
           provider,
-          modelId,
+          modelId: runtimeModelId,
           modelRegistry,
           providerConfig: resolveConfiguredProviderConfig(cfg, provider),
         },
       });
     }
   }
-  const model =
-    explicitModel?.kind === "resolved"
-      ? explicitModel.model
-      : resolveModelWithRegistry({
-          provider,
-          modelId,
-          modelRegistry,
-          cfg,
-          agentDir: resolvedAgentDir,
-        });
+  const model = resolveModelWithRegistry({
+    provider,
+    modelId,
+    modelRegistry,
+    cfg,
+    agentDir: resolvedAgentDir,
+  });
   if (model) {
     return { model, authStorage, modelRegistry };
   }

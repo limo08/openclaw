@@ -1394,6 +1394,7 @@ export async function runEmbeddedAttempt(
   params: EmbeddedRunAttemptParams,
 ): Promise<EmbeddedRunAttemptResult> {
   const resolvedWorkspace = resolveUserPath(params.workspaceDir);
+  const runtimeModelId = params.model.id;
   const prevCwd = process.cwd();
   const runAbortController = new AbortController();
   // Proxy bootstrap must happen before timeout tuning so the timeouts wrap the
@@ -1534,7 +1535,7 @@ export async function runEmbeddedAttempt(
           config: params.config,
           abortSignal: runAbortController.signal,
           modelProvider: params.model.provider,
-          modelId: params.modelId,
+          modelId: runtimeModelId,
           modelCompat: params.model.compat,
           modelContextWindowTokens: params.model.contextWindow,
           modelAuthMode: resolveModelAuthMode(params.model.provider, params.config),
@@ -1789,7 +1790,7 @@ export async function runEmbeddedAttempt(
       const transcriptPolicy = resolveTranscriptPolicy({
         modelApi: params.model?.api,
         provider: params.provider,
-        modelId: params.modelId,
+        modelId: runtimeModelId,
       });
 
       await prewarmSessionFile(params.sessionFile);
@@ -1838,7 +1839,7 @@ export async function runEmbeddedAttempt(
         cfg: params.config,
         sessionManager,
         provider: params.provider,
-        modelId: params.modelId,
+        modelId: runtimeModelId,
         model: params.model,
       });
       // Only create an explicit resource loader when there are extension factories
@@ -1994,7 +1995,7 @@ export async function runEmbeddedAttempt(
         activeSession.agent,
         params.config,
         params.provider,
-        params.modelId,
+        runtimeModelId,
         {
           ...params.streamParams,
           fastMode: params.fastMode,
@@ -2130,7 +2131,7 @@ export async function runEmbeddedAttempt(
         const prior = await sanitizeSessionHistory({
           messages: activeSession.messages,
           modelApi: params.model.api,
-          modelId: params.modelId,
+          modelId: runtimeModelId,
           provider: params.provider,
           allowedToolNames,
           config: params.config,
@@ -2683,12 +2684,12 @@ export async function runEmbeddedAttempt(
         if (!timedOutDuringCompaction && !compactionOccurredThisAttempt) {
           const shouldTrackCacheTtl =
             params.config?.agents?.defaults?.contextPruning?.mode === "cache-ttl" &&
-            isCacheTtlEligibleProvider(params.provider, params.modelId);
+            isCacheTtlEligibleProvider(params.provider, runtimeModelId);
           if (shouldTrackCacheTtl) {
             appendCacheTtlTimestamp(sessionManager, {
               timestamp: Date.now(),
               provider: params.provider,
-              modelId: params.modelId,
+              modelId: runtimeModelId,
             });
           }
         }
