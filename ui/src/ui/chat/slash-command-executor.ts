@@ -134,7 +134,8 @@ async function executeModel(
       ]);
       const session = resolveCurrentSession(sessions, sessionKey);
       const model = session?.model || sessions?.defaults?.model || "default";
-      const available = models?.models?.map((m: ModelCatalogEntry) => m.id) ?? [];
+      const available =
+        models?.models?.map((m: ModelCatalogEntry) => `${m.provider}/${m.id}`) ?? [];
       const lines = [`**Current model:** \`${model}\``];
       if (available.length > 0) {
         lines.push(
@@ -144,6 +145,7 @@ async function executeModel(
             .join(", ")}${available.length > 10 ? ` +${available.length - 10} more` : ""}`,
         );
       }
+      lines.push("_Enter `provider/model` to switch (e.g. `anthropic/claude-opus-4.6)`_");
       return { content: lines.join("\n") };
     } catch (err) {
       return { content: `Failed to get model info: ${String(err)}` };
