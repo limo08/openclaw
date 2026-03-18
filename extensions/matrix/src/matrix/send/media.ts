@@ -1,3 +1,9 @@
+import { execFile as execFileCallback } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import type {
   DimensionalFileInfo,
   EncryptedFile,
@@ -18,6 +24,7 @@ import {
 
 const getCore = () => getMatrixRuntime();
 type IFileInfo = import("music-metadata").IFileInfo;
+const execFile = promisify(execFileCallback);
 
 export function buildMatrixMediaInfo(params: {
   size: number;
@@ -69,6 +76,7 @@ export function buildMediaContent(params: {
   relation?: MatrixRelation;
   isVoice?: boolean;
   durationMs?: number;
+  waveform?: number[];
   imageInfo?: DimensionalFileInfo;
   file?: EncryptedFile;
 }): MatrixMediaContent {
@@ -95,9 +103,13 @@ export function buildMediaContent(params: {
   if (params.isVoice) {
     base["org.matrix.msc3245.voice"] = {};
     if (typeof params.durationMs === "number") {
-      base["org.matrix.msc1767.audio"] = {
+      const audioMeta: Record<string, unknown> = {
         duration: params.durationMs,
       };
+      if (params.waveform && params.waveform.length > 0) {
+        audioMeta.waveform = params.waveform;
+      }
+      base["org.matrix.msc1767.audio"] = audioMeta;
     }
   }
   if (params.relation) {
@@ -185,6 +197,77 @@ export async function resolveMediaDurationMs(params: {
     // Duration is optional; ignore parse failures.
   }
   return undefined;
+}
+
+const WAVEFORM_POINTS = 100;
+
+/** Cached result of ffmpeg availability check. `null` = not yet checked. */
+let ffmpegAvailable: boolean | null = null;
+
+async function isFfmpegAvailable(): Promise<boolean> {
+  if (ffmpegAvailable !== null) return ffmpegAvailable;
+  try {
+    await execFile("ffmpeg", ["-version"], { timeout: 5000 });
+    ffmpegAvailable = true;
+  } catch {
+    ffmpegAvailable = false;
+    try {
+      const logger = getCore().logging.getChildLogger({ plugin: "matrix" });
+      logger.warn(
+        "ffmpeg not found — voice message waveform generation disabled. " +
+          "Install ffmpeg to enable waveform visualizations in Element clients.",
+      );
+    } catch {
+      // runtime not available (e.g. in tests) — silently skip the warning
+    }
+  }
+  return ffmpegAvailable;
+}
+
+/**
+ * Generate a waveform array (0-1024 amplitude values) from an audio buffer
+ * using ffmpeg to extract PCM peaks. Returns undefined if ffmpeg is not
+ * available or on failure. Used for MSC1767 voice message waveform
+ * visualization in Element.
+ */
+export async function generateWaveform(buffer: Buffer): Promise<number[] | undefined> {
+  if (!(await isFfmpegAvailable())) return undefined;
+
+  try {
+    // Write buffer to temp file (ffmpeg pipe input unreliable with some formats)
+    const tmpPath = join(tmpdir(), `oc-waveform-${randomBytes(6).toString("hex")}`);
+    await writeFile(tmpPath, buffer);
+
+    try {
+      const { stdout } = await execFile(
+        "ffmpeg",
+        ["-i", tmpPath, "-ac", "1", "-ar", "8000", "-f", "f32le", "pipe:1"],
+        { encoding: "buffer", maxBuffer: 10 * 1024 * 1024 },
+      );
+
+      const samples = new Float32Array(stdout.buffer, stdout.byteOffset, stdout.byteLength / 4);
+      const bucketSize = Math.max(1, Math.floor(samples.length / WAVEFORM_POINTS));
+      const waveform: number[] = [];
+
+      for (let i = 0; i < WAVEFORM_POINTS; i++) {
+        const start = i * bucketSize;
+        const end = Math.min(start + bucketSize, samples.length);
+        let peak = 0;
+        for (let j = start; j < end; j++) {
+          const abs = Math.abs(samples[j]);
+          if (abs > peak) peak = abs;
+        }
+        waveform.push(Math.min(1024, Math.round(peak * 1024)));
+      }
+
+      return waveform;
+    } finally {
+      await unlink(tmpPath).catch(() => {});
+    }
+  } catch {
+    // Waveform generation failed; voice message still works without it
+    return undefined;
+  }
 }
 
 async function uploadFile(
