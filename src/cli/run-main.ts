@@ -6,6 +6,7 @@ import { isMainModule } from "../infra/is-main.js";
 import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { assertSupportedRuntime } from "../infra/runtime-guard.js";
 import { enableConsoleCapture } from "../logging.js";
+import { restoreTerminalState } from "../terminal/restore.js";
 import {
   getCommandPathWithRootOptions,
   getPrimaryCommand,
@@ -123,6 +124,7 @@ export async function runCli(argv: string[] = process.argv) {
 
     process.on("uncaughtException", (error) => {
       console.error("[openclaw] Uncaught exception:", formatUncaughtError(error));
+      restoreTerminalState("uncaught exception", { resumeStdinIfPaused: false });
       process.exit(1);
     });
 
