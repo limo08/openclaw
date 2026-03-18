@@ -436,7 +436,7 @@ describe("applyCustomApiConfig", () => {
   it("produces azure-specific config for Azure OpenAI URLs with reasoning model", () => {
     const result = applyCustomApiConfig({
       config: {},
-      baseUrl: "https://kunalk16-resource.openai.azure.com",
+      baseUrl: "https://user123-resource.openai.azure.com",
       modelId: "o4-mini",
       compatibility: "openai",
       apiKey: "abcd1234",
@@ -444,7 +444,7 @@ describe("applyCustomApiConfig", () => {
     const providerId = result.providerId!;
     const provider = result.config.models?.providers?.[providerId];
 
-    expect(provider?.baseUrl).toBe("https://kunalk16-resource.openai.azure.com/openai/v1");
+    expect(provider?.baseUrl).toBe("https://user123-resource.openai.azure.com/openai/v1");
     expect(provider?.api).toBe("openai-responses");
     expect(provider?.authHeader).toBe(false);
     expect(provider?.headers).toEqual({ "api-key": "abcd1234" });
