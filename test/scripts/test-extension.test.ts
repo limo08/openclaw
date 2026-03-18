@@ -8,13 +8,27 @@ import {
 } from "../../scripts/test-extension.mjs";
 
 const scriptPath = path.join(process.cwd(), "scripts", "test-extension.mjs");
+type DryRunPlan = ReturnType<typeof resolveExtensionTestPlan> & {
+  maxTests?: number;
+  selectedTestFiles: string[];
+};
 
 function readPlan(args: string[], cwd = process.cwd()) {
   const stdout = execFileSync(process.execPath, [scriptPath, ...args, "--dry-run", "--json"], {
     cwd,
     encoding: "utf8",
   });
-  return JSON.parse(stdout) as ReturnType<typeof resolveExtensionTestPlan>;
+  return JSON.parse(stdout) as DryRunPlan;
+}
+
+function findZeroTestExtensionId(): string | undefined {
+  for (const extensionId of listAvailableExtensionIds()) {
+    const plan = resolveExtensionTestPlan({ targetArg: extensionId, cwd: process.cwd() });
+    if (plan.testFiles.length === 0) {
+      return extensionId;
+    }
+  }
+  return undefined;
 }
 
 describe("scripts/test-extension.mjs", () => {
@@ -71,5 +85,23 @@ describe("scripts/test-extension.mjs", () => {
     expect(extensionIds).toEqual(
       [...extensionIds].toSorted((left, right) => left.localeCompare(right)),
     );
+  });
+
+  it("permits zero-test extensions when --allow-empty is passed", () => {
+    const extensionId = findZeroTestExtensionId();
+    expect(extensionId).toBeTruthy();
+
+    const plan = readPlan([extensionId!, "--allow-empty"]);
+    expect(plan.extensionId).toBe(extensionId);
+    expect(plan.testFiles).toHaveLength(0);
+    expect(plan.selectedTestFiles).toHaveLength(0);
+  });
+
+  it("limits selected tests when --max-tests is passed", () => {
+    const plan = readPlan(["discord", "--allow-empty", "--max-tests", "1"]);
+    expect(plan.extensionId).toBe("discord");
+    expect(plan.testFiles.length).toBeGreaterThan(1);
+    expect(plan.selectedTestFiles).toHaveLength(1);
+    expect(plan.maxTests).toBe(1);
   });
 });

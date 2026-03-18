@@ -85,6 +85,7 @@ jobs:
     outputs:
       has_changed_extensions: ${{ steps.changed.outputs.has_changed_extensions }}
       changed_extensions_matrix: ${{ steps.changed.outputs.changed_extensions_matrix }}
+      changed_extensions_reason: ${{ steps.changed.outputs.changed_extensions_reason }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -113,14 +114,88 @@ jobs:
         run: |
           node --input-type=module <<'EOF'
           import { appendFileSync } from "node:fs";
-          import { listChangedExtensionIds } from "./scripts/test-extension.mjs";
+          import { execFileSync } from "node:child_process";
+          import {
+            listAvailableExtensionIds,
+            listChangedExtensionIds,
+            resolveExtensionTestPlan,
+          } from "./scripts/test-extension.mjs";
 
-          const extensionIds = listChangedExtensionIds({ base: process.env.BASE_SHA, head: "HEAD" });
+          const normalizeRelative = (filePath) => String(filePath).replaceAll("\\", "/");
+          const changedPaths = execFileSync("git", ["diff", "--name-only", process.env.BASE_SHA, "HEAD"], {
+            cwd: process.cwd(),
+            stdio: ["ignore", "pipe", "pipe"],
+            encoding: "utf8",
+          })
+            .split("\n")
+            .map((line) => normalizeRelative(line.trim()))
+            .filter((line) => line.length > 0);
+          const extensionFastInfraChanged = changedPaths.some((changedPath) =>
+            changedPath === ".github/workflows/ci.yml" ||
+            changedPath === "scripts/test-extension.mjs" ||
+            changedPath === "vitest.extensions.config.ts" ||
+            changedPath === "vitest.channels.config.ts" ||
+            changedPath === "vitest.channel-paths.mjs" ||
+            changedPath.startsWith(".github/actions/setup-node-env/"),
+          );
+
+          let extensionIds = listChangedExtensionIds({ base: process.env.BASE_SHA, head: "HEAD" });
+          let reason = extensionIds.length > 0 ? "changed-extensions" : "none";
+
+          if (extensionIds.length === 0 && extensionFastInfraChanged) {
+            const allExtensionIds = listAvailableExtensionIds();
+            const preferredRepresentativeExtensions = ["memory-lancedb", "line"];
+            const orderedExtensionIds = [
+              ...preferredRepresentativeExtensions.filter((extensionId) =>
+                allExtensionIds.includes(extensionId),
+              ),
+              ...allExtensionIds.filter(
+                (extensionId) => !preferredRepresentativeExtensions.includes(extensionId),
+              ),
+            ];
+            let extensionCandidate = "";
+            let channelCandidate = "";
+            for (const extensionId of orderedExtensionIds) {
+              const plan = resolveExtensionTestPlan({ targetArg: extensionId, cwd: process.cwd() });
+              if (plan.testFiles.length === 0) {
+                continue;
+              }
+              if (!extensionCandidate && plan.config === "vitest.extensions.config.ts") {
+                extensionCandidate = extensionId;
+              }
+              if (!channelCandidate && plan.config === "vitest.channels.config.ts") {
+                channelCandidate = extensionId;
+              }
+              if (extensionCandidate && channelCandidate) {
+                break;
+              }
+            }
+
+            const representativeIds = [];
+            if (extensionCandidate) {
+              representativeIds.push(extensionCandidate);
+            }
+            if (channelCandidate && channelCandidate !== extensionCandidate) {
+              representativeIds.push(channelCandidate);
+            }
+
+            extensionIds = representativeIds;
+            reason =
+              representativeIds.length > 0
+                ? "extension-fast-infra-change-representative"
+                : "extension-fast-infra-change-no-tests";
+          }
+
           const matrix = JSON.stringify({ include: extensionIds.map((extension) => ({ extension })) });
-
+          appendFileSync(process.env.GITHUB_OUTPUT, `changed_extensions_reason=${reason}\n`, "utf8");
           appendFileSync(process.env.GITHUB_OUTPUT, `has_changed_extensions=${extensionIds.length > 0}\n`, "utf8");
           appendFileSync(process.env.GITHUB_OUTPUT, `changed_extensions_matrix=${matrix}\n`, "utf8");
           EOF
+
+      - name: Report changed-extensions selection
+        run: |
+          echo "extension-fast selection reason: ${{ steps.changed.outputs.changed_extensions_reason }}"
+          echo "extension-fast matrix: ${{ steps.changed.outputs.changed_extensions_matrix }}"
 
   # Build dist once for Node-relevant changes and share it with downstream jobs.
   build-artifacts:
@@ -252,13 +327,123 @@ jobs:
         if: matrix.runtime != 'bun' || github.event_name != 'pull_request'
         run: ${{ matrix.command }}
 
+  extension-fast-precheck:
+    name: "extension-fast-precheck"
+    needs: [docs-scope, changed-scope, changed-extensions]
+    if: needs.docs-scope.outputs.docs_only != 'true' && needs.changed-scope.outputs.run_node == 'true' && needs.changed-extensions.outputs.has_changed_extensions == 'true' && needs.changed-extensions.outputs.changed_extensions_reason != 'extension-fast-infra-change-representative'
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          install-bun: "false"
+          use-sticky-disk: "false"
+
+      - name: Select representative extension-fast files
+        id: representative
+        run: |
+          node --input-type=module <<'EOF'
+          import { appendFileSync } from "node:fs";
+          import { listAvailableExtensionIds, resolveExtensionTestPlan } from "./scripts/test-extension.mjs";
+
+          const allExtensionIds = listAvailableExtensionIds();
+          const preferredRepresentativeExtensions = ["memory-lancedb", "line"];
+          const orderedExtensionIds = [
+            ...preferredRepresentativeExtensions.filter((extensionId) =>
+              allExtensionIds.includes(extensionId),
+            ),
+            ...allExtensionIds.filter(
+              (extensionId) => !preferredRepresentativeExtensions.includes(extensionId),
+            ),
+          ];
+
+          let extensionFile = "";
+          let channelFile = "";
+          let extensionRepresentativeId = "";
+          let channelRepresentativeId = "";
+
+          for (const candidateId of orderedExtensionIds) {
+            const plan = resolveExtensionTestPlan({ targetArg: candidateId, cwd: process.cwd() });
+            if (plan.testFiles.length === 0) {
+              continue;
+            }
+            const firstFile = plan.testFiles[0] ?? "";
+            if (!extensionFile && plan.config === "vitest.extensions.config.ts") {
+              extensionRepresentativeId = plan.extensionId;
+              extensionFile = firstFile;
+            }
+            if (!channelFile && plan.config === "vitest.channels.config.ts") {
+              channelRepresentativeId = plan.extensionId;
+              channelFile = firstFile;
+            }
+            if (extensionFile && channelFile) {
+              break;
+            }
+          }
+
+          appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `extension_id=${extensionRepresentativeId}\n`,
+            "utf8",
+          );
+          appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `channel_id=${channelRepresentativeId}\n`,
+            "utf8",
+          );
+          appendFileSync(process.env.GITHUB_OUTPUT, `extension_file=${extensionFile}\n`, "utf8");
+          appendFileSync(process.env.GITHUB_OUTPUT, `channel_file=${channelFile}\n`, "utf8");
+          EOF
+
+      - name: Run extension-fast import precheck
+        env:
+          EXTENSION_ID: ${{ steps.representative.outputs.extension_id }}
+          CHANNEL_ID: ${{ steps.representative.outputs.channel_id }}
+          EXTENSION_FILE: ${{ steps.representative.outputs.extension_file }}
+          CHANNEL_FILE: ${{ steps.representative.outputs.channel_file }}
+        run: |
+          set -euo pipefail
+          precheck_start="$(date +%s)"
+
+          if [ -n "$EXTENSION_ID" ]; then
+            echo "Running extensions plan precheck: $EXTENSION_ID"
+            node scripts/test-extension.mjs "$EXTENSION_ID" --allow-empty --dry-run --json > /dev/null
+          fi
+
+          if [ -n "$CHANNEL_ID" ]; then
+            echo "Running channels plan precheck: $CHANNEL_ID"
+            node scripts/test-extension.mjs "$CHANNEL_ID" --allow-empty --dry-run --json > /dev/null
+          fi
+
+          if [ -z "$EXTENSION_ID" ] && [ -z "$CHANNEL_ID" ]; then
+            echo "::warning::extension-fast precheck found no representative test files."
+          fi
+
+          precheck_end="$(date +%s)"
+          precheck_duration="$((precheck_end - precheck_start))"
+          {
+            echo "### extension-fast-precheck"
+            echo "- extension id: ${EXTENSION_ID:-none}"
+            echo "- channel id: ${CHANNEL_ID:-none}"
+            echo "- extension file: ${EXTENSION_FILE:-none}"
+            echo "- channel file: ${CHANNEL_FILE:-none}"
+            echo "- duration: ${precheck_duration}s"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   extension-fast:
     name: "extension-fast (${{ matrix.extension }})"
-    needs: [docs-scope, changed-scope, changed-extensions]
+    needs: [docs-scope, changed-scope, changed-extensions, extension-fast-precheck]
     if: needs.docs-scope.outputs.docs_only != 'true' && needs.changed-scope.outputs.run_node == 'true' && needs.changed-extensions.outputs.has_changed_extensions == 'true'
     runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 25
     strategy:
-      fail-fast: false
+      fail-fast: ${{ github.event_name == 'pull_request' }}
       matrix: ${{ fromJson(needs.changed-extensions.outputs.changed_extensions_matrix) }}
     steps:
       - name: Checkout
@@ -272,10 +457,242 @@ jobs:
           install-bun: "false"
           use-sticky-disk: "false"
 
-      - name: Run changed extension tests
+      - name: Show extension-fast test plan
+        id: plan
         env:
           OPENCLAW_CHANGED_EXTENSION: ${{ matrix.extension }}
-        run: pnpm test:extension "$OPENCLAW_CHANGED_EXTENSION"
+        run: |
+          set -euo pipefail
+          plan_json="$(node scripts/test-extension.mjs "$OPENCLAW_CHANGED_EXTENSION" --allow-empty --max-tests 1 --dry-run --json)"
+          config="$(printf '%s' "$plan_json" | jq -r '.config')"
+          roots="$(printf '%s' "$plan_json" | jq -r '.roots | join(", ")')"
+          tests="$(printf '%s' "$plan_json" | jq -r '(.selectedTestFiles // .testFiles | length)')"
+          total_tests="$(printf '%s' "$plan_json" | jq -r '.testFiles | length')"
+          {
+            echo "config=$config"
+            echo "tests=$tests"
+            echo "total_tests=$total_tests"
+          } >> "$GITHUB_OUTPUT"
+          echo "extension-fast plan: config=$config selected-tests=$tests total-tests=$total_tests roots=$roots"
+          {
+            echo "### extension-fast (${OPENCLAW_CHANGED_EXTENSION}) plan"
+            echo "- config: \`$config\`"
+            echo "- roots: \`$roots\`"
+            echo "- selected test files: \`$tests\`"
+            echo "- total test files: \`$total_tests\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run changed extension tests (timed)
+        env:
+          OPENCLAW_CHANGED_EXTENSION: ${{ matrix.extension }}
+          PLAN_CONFIG: ${{ steps.plan.outputs.config }}
+          PLAN_TESTS: ${{ steps.plan.outputs.tests }}
+          PLAN_TOTAL_TESTS: ${{ steps.plan.outputs.total_tests }}
+        run: |
+          set -euo pipefail
+          test_start="$(date +%s)"
+          set +e
+          pnpm test:extension "$OPENCLAW_CHANGED_EXTENSION" --allow-empty --max-tests 1 -- --pool=forks --maxWorkers=1 --bail=1
+          test_status=$?
+          set -e
+          test_end="$(date +%s)"
+          test_duration="$((test_end - test_start))"
+
+          metrics_dir="${RUNNER_TEMP}/extension-fast-metrics"
+          mkdir -p "$metrics_dir"
+          metrics_json="${metrics_dir}/${OPENCLAW_CHANGED_EXTENSION}.json"
+          metrics_tsv="${metrics_dir}/${OPENCLAW_CHANGED_EXTENSION}.tsv"
+
+          jq -n \
+            --arg extension "$OPENCLAW_CHANGED_EXTENSION" \
+            --arg config "${PLAN_CONFIG:-unknown}" \
+            --argjson tests "${PLAN_TESTS:-0}" \
+            --argjson totalTests "${PLAN_TOTAL_TESTS:-0}" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg sha "$GITHUB_SHA" \
+            --arg ref "$GITHUB_REF" \
+            --arg status "$test_status" \
+            --argjson durationSeconds "$test_duration" \
+            '{
+              extension: $extension,
+              config: $config,
+              tests: $tests,
+              totalTests: $totalTests,
+              runId: $runId,
+              runAttempt: $runAttempt,
+              sha: $sha,
+              ref: $ref,
+              status: $status,
+              durationSeconds: $durationSeconds
+            }' > "$metrics_json"
+
+          printf "extension\tconfig\ttests\ttotal_tests\tstatus\tduration_seconds\trun_id\trun_attempt\tsha\tref\n" > "$metrics_tsv"
+          printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+            "$OPENCLAW_CHANGED_EXTENSION" \
+            "${PLAN_CONFIG:-unknown}" \
+            "${PLAN_TESTS:-0}" \
+            "${PLAN_TOTAL_TESTS:-0}" \
+            "$test_status" \
+            "$test_duration" \
+            "$GITHUB_RUN_ID" \
+            "$GITHUB_RUN_ATTEMPT" \
+            "$GITHUB_SHA" \
+            "$GITHUB_REF" >> "$metrics_tsv"
+
+          echo "extension-fast test duration: ${test_duration}s"
+          {
+            echo "### extension-fast (${OPENCLAW_CHANGED_EXTENSION}) runtime"
+            echo "- duration: ${test_duration}s"
+            echo "- exit code: ${test_status}"
+            echo "- selected tests: ${PLAN_TESTS:-0}"
+            echo "- total tests: ${PLAN_TOTAL_TESTS:-0}"
+            echo "- metrics json: \`${metrics_json}\`"
+            echo "- metrics tsv: \`${metrics_tsv}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$test_status"
+
+      - name: Upload extension-fast timing artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: extension-fast-metrics-${{ matrix.extension }}
+          path: |
+            ${{ runner.temp }}/extension-fast-metrics/${{ matrix.extension }}.json
+            ${{ runner.temp }}/extension-fast-metrics/${{ matrix.extension }}.tsv
+          if-no-files-found: warn
+          retention-days: 7
+
+  extension-fast-metrics-summary:
+    name: "extension-fast-metrics-summary"
+    needs: [docs-scope, changed-scope, changed-extensions, extension-fast]
+    if: always() && needs.docs-scope.outputs.docs_only != 'true' && needs.changed-scope.outputs.run_node == 'true' && needs.changed-extensions.outputs.has_changed_extensions == 'true'
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    steps:
+      - name: Download extension-fast timing artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: extension-fast-metrics-*
+          merge-multiple: true
+          path: extension-fast-metrics
+
+      - name: Summarize extension-fast timing
+        run: |
+          node --input-type=module <<'EOF'
+          import { readdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+          import path from "node:path";
+
+          const metricsDir = path.resolve("extension-fast-metrics");
+          const summaryPath = path.resolve("extension-fast-summary.json");
+          const summaryTsvPath = path.resolve("extension-fast-summary.tsv");
+          const slaP95Seconds = 900;
+          const slaMaxSeconds = 1500;
+
+          if (!existsSync(metricsDir)) {
+            console.error("::error::No extension-fast timing artifacts found.");
+            process.exit(1);
+          }
+
+          const rows = readdirSync(metricsDir)
+            .filter((entry) => entry.endsWith(".json"))
+            .map((entry) => {
+              const fullPath = path.join(metricsDir, entry);
+              return JSON.parse(readFileSync(fullPath, "utf8"));
+            })
+            .filter((row) => typeof row.durationSeconds === "number");
+
+          if (rows.length === 0) {
+            console.error("::error::No extension-fast timing JSON rows were found.");
+            process.exit(1);
+          }
+
+          const durations = rows.map((row) => row.durationSeconds).toSorted((a, b) => a - b);
+          const pick = (p) => durations[Math.max(0, Math.min(durations.length - 1, Math.ceil(p * durations.length) - 1))];
+          const p50 = pick(0.5);
+          const p95 = pick(0.95);
+          const max = durations[durations.length - 1];
+          const failed = rows.filter((row) => String(row.status) !== "0").length;
+
+          const summary = {
+            count: rows.length,
+            failed,
+            p50Seconds: p50,
+            p95Seconds: p95,
+            maxSeconds: max,
+            rows,
+          };
+          writeFileSync(summaryPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8");
+
+          const tsvLines = [
+            "extension\tconfig\ttests\ttotal_tests\tstatus\tduration_seconds\trun_id\trun_attempt\tsha\tref",
+            ...rows.map((row) =>
+              [
+                row.extension,
+                row.config,
+                row.tests,
+                row.totalTests ?? 0,
+                row.status,
+                row.durationSeconds,
+                row.runId,
+                row.runAttempt,
+                row.sha,
+                row.ref,
+              ].join("\t"),
+            ),
+          ];
+          writeFileSync(summaryTsvPath, `${tsvLines.join("\n")}\n`, "utf8");
+
+          const markdown = [
+            "### extension-fast timing summary",
+            `- lanes: \`${rows.length}\``,
+            `- failed lanes: \`${failed}\``,
+            `- p50: \`${p50}s\``,
+            `- p95: \`${p95}s\``,
+            `- max: \`${max}s\``,
+            "",
+            "| extension | config | selected tests | total tests | status | duration (s) |",
+            "| --- | --- | ---: | ---: | ---: | ---: |",
+            ...rows
+              .toSorted((a, b) => b.durationSeconds - a.durationSeconds)
+              .map(
+                (row) =>
+                  `| ${row.extension} | ${row.config} | ${row.tests} | ${row.totalTests ?? 0} | ${row.status} | ${row.durationSeconds} |`,
+              ),
+          ].join("\n");
+          writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${markdown}\n`, { flag: "a" });
+
+          let failedSla = false;
+          if (failed > 0) {
+            console.error(`::error::extension-fast contains ${failed} failing lanes.`);
+            failedSla = true;
+          }
+          if (p95 > slaP95Seconds) {
+            console.error(
+              `::error::extension-fast p95 ${p95}s exceeds SLA target ${slaP95Seconds}s.`,
+            );
+            failedSla = true;
+          }
+          if (max > slaMaxSeconds) {
+            console.error(
+              `::error::extension-fast max ${max}s exceeds SLA ceiling ${slaMaxSeconds}s.`,
+            );
+            failedSla = true;
+          }
+          if (failedSla) {
+            process.exit(1);
+          }
+          EOF
+
+      - name: Upload extension-fast timing summary artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: extension-fast-metrics-summary
+          path: |
+            extension-fast-summary.json
+            extension-fast-summary.tsv
+          if-no-files-found: warn
+          retention-days: 7
 
   # Types, lint, and format check.
   check:
