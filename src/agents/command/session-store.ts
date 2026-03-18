@@ -24,6 +24,8 @@ export async function updateSessionStoreAfterAgentRun(params: {
   defaultModel: string;
   fallbackProvider?: string;
   fallbackModel?: string;
+  /** True when the model was selected by the fallback chain rather than being the primary. */
+  isFromFallback?: boolean;
   result: RunResult;
 }) {
   const {
@@ -66,6 +68,7 @@ export async function updateSessionStoreAfterAgentRun(params: {
   setSessionRuntimeModel(next, {
     provider: providerUsed,
     model: modelUsed,
+    isFromFallback: params.isFromFallback ?? false,
   });
   if (isCliProvider(providerUsed, cfg)) {
     const cliSessionId = result.meta.agentMeta?.sessionId?.trim();
