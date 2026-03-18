@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import type * as http from "node:http";
+import { describe, expect, it, vi } from "vitest";
 import {
   resolveFeishuWebhookAnomalyDefaultsForTest,
   resolveFeishuWebhookRateLimitDefaultsForTest,
+  httpServers,
+  stopFeishuMonitorState,
 } from "./monitor.state.js";
 
 describe("feishu monitor state defaults", () => {
@@ -42,5 +45,40 @@ describe("feishu monitor state defaults", () => {
       ttlMs: 21_600_000,
       logEvery: 10,
     });
+  });
+});
+
+describe("feishu monitor state cleanup", () => {
+  it("calls closeAllConnections before close for a single account", () => {
+    const callOrder: string[] = [];
+    const server = {
+      close: vi.fn(() => callOrder.push("close")),
+      closeAllConnections: vi.fn(() => callOrder.push("closeAllConnections")),
+    } as unknown as http.Server;
+    httpServers.set("test-account", server);
+
+    stopFeishuMonitorState("test-account");
+
+    expect(callOrder).toEqual(["closeAllConnections", "close"]);
+    expect(httpServers.has("test-account")).toBe(false);
+  });
+
+  it("calls closeAllConnections on all servers when no accountId given", () => {
+    const callOrder: string[] = [];
+    const server1 = {
+      close: vi.fn(() => callOrder.push("s1:close")),
+      closeAllConnections: vi.fn(() => callOrder.push("s1:closeAll")),
+    } as unknown as http.Server;
+    const server2 = {
+      close: vi.fn(() => callOrder.push("s2:close")),
+      closeAllConnections: vi.fn(() => callOrder.push("s2:closeAll")),
+    } as unknown as http.Server;
+    httpServers.set("a", server1);
+    httpServers.set("b", server2);
+
+    stopFeishuMonitorState();
+
+    expect(callOrder).toEqual(["s1:closeAll", "s1:close", "s2:closeAll", "s2:close"]);
+    expect(httpServers.size).toBe(0);
   });
 });
