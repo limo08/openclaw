@@ -101,7 +101,7 @@ def package_skill(skill_path, output_dir=None):
                 files_to_package.append(file_path)
 
         # Sort files deterministically by their relative path (as string)
-        files_to_package.sort(key=lambda p: str(p.relative_to(skill_path)))
+        files_to_package.sort(key=lambda p: p.relative_to(skill_path).as_posix())
 
         with zipfile.ZipFile(skill_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
             for file_path in files_to_package:
