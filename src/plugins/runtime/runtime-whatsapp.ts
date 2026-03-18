@@ -1,12 +1,11 @@
-import { getActiveWebListener } from "../../../extensions/whatsapp/src/active-listener.js";
 import {
+  getActiveWebListener,
   getWebAuthAgeMs,
   logWebSelfId,
-  logoutWeb,
+  monitorWebChannel as monitorWebChannelImpl,
   readWebSelfId,
   webAuthExists,
-} from "../../../extensions/whatsapp/src/auth-store.js";
-import { monitorWebChannel as monitorWebChannelImpl } from "../../../extensions/whatsapp/src/auto-reply/monitor.js";
+} from "../../../extensions/whatsapp/runtime-api.js";
 import {
   createLazyRuntimeMethodBinder,
   createLazyRuntimeSurface,
