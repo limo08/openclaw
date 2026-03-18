@@ -4,8 +4,7 @@ import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-pay
 import { resolveBootstrapWarningSignaturesSeen } from "../../agents/bootstrap-budget.js";
 import { runCliAgent } from "../../agents/cli-runner.js";
 import { getCliSessionId } from "../../agents/cli-session.js";
-import { runWithModelFallback } from "../../agents/model-fallback.js";
-import { isFallbackSummaryError } from "../../agents/model-fallback.js";
+import { runWithModelFallback, isFallbackSummaryError } from "../../agents/model-fallback.js";
 import { isCliProvider } from "../../agents/model-selection.js";
 import {
   BILLING_ERROR_USER_MESSAGE,
@@ -645,8 +644,15 @@ export async function runAgentTurnWithFallback(params: {
       }
 
       defaultRuntime.error(`Embedded agent failed before reply: ${message}`);
+      // Only classify as rate-limit when we have concrete evidence: either
+      // the error message itself is a rate-limit string, or the fallback
+      // chain exhaustion includes at least one rate_limit / overloaded attempt.
+      // This avoids showing misleading "Rate-limited — ready in ~Xs" messages
+      // for auth, model_not_found, or other non-rate-limit failures.
       const isRateLimit =
-        isRateLimitErrorMessage(message) || isFallbackSummaryError(err);
+        isRateLimitErrorMessage(message) ||
+        (isFallbackSummaryError(err) &&
+          err.attempts.some((a) => a.reason === "rate_limit" || a.reason === "overloaded"));
       const safeMessage = isTransientHttp
         ? sanitizeUserFacingText(message, { errorContext: true })
         : message;
