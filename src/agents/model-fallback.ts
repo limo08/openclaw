@@ -801,7 +801,9 @@ export async function runWithModelFallback<T>(params: {
         attempt.reason ? ` (${attempt.reason})` : ""
       }`,
     soonestCooldownExpiry: (() => {
-      if (!authStore) return null;
+      if (!authStore) {
+        return null;
+      }
       const allProfileIds = new Set<string>();
       for (const c of candidates) {
         const ids = resolveAuthProfileOrder({
@@ -809,7 +811,9 @@ export async function runWithModelFallback<T>(params: {
           store: authStore,
           provider: c.provider,
         });
-        for (const id of ids) allProfileIds.add(id);
+        for (const id of ids) {
+          allProfileIds.add(id);
+        }
       }
       return getSoonestCooldownExpiry(authStore, [...allProfileIds]);
     })(),
