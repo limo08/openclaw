@@ -479,4 +479,78 @@ describe("parseNonInteractiveCustomApiFlags", () => {
   ])("rejects $name", ({ flags, expectedMessage }) => {
     expect(() => parseNonInteractiveCustomApiFlags(flags)).toThrow(expectedMessage);
   });
+
+  it("produces azure-specific config for Azure OpenAI URLs", () => {
+    const result = applyCustomApiConfig({
+      config: {},
+      baseUrl: "https://kunalk16-resource.openai.azure.com",
+      modelId: "gpt-5.2-chat",
+      compatibility: "openai",
+      apiKey: "abcd1234",
+    });
+    const providerId = result.providerId!;
+    const provider = result.config.models?.providers?.[providerId];
+
+    expect(provider?.baseUrl).toBe("https://kunalk16-resource.openai.azure.com/openai/v1");
+    expect(provider?.api).toBe("openai-responses");
+    expect(provider?.authHeader).toBe(false);
+    expect(provider?.headers).toEqual({ "api-key": "abcd1234" });
+
+    const model = provider?.models?.find((m) => m.id === "gpt-5.2-chat");
+    expect(model?.input).toEqual(["text", "image"]);
+    expect(model?.reasoning).toBe(true);
+    expect(model?.compat).toEqual({ supportsStore: false });
+
+    expect(result.config.agents?.defaults?.thinkingDefault).toBe("medium");
+  });
+
+  it("produces azure-specific config for Azure AI Foundry URLs", () => {
+    const result = applyCustomApiConfig({
+      config: {},
+      baseUrl: "https://my-resource.services.ai.azure.com",
+      modelId: "gpt-4.1",
+      compatibility: "openai",
+      apiKey: "key123",
+    });
+    const providerId = result.providerId!;
+    const provider = result.config.models?.providers?.[providerId];
+
+    expect(provider?.baseUrl).toBe("https://my-resource.services.ai.azure.com/openai/v1");
+    expect(provider?.api).toBe("openai-responses");
+    expect(provider?.authHeader).toBe(false);
+    expect(provider?.headers).toEqual({ "api-key": "key123" });
+  });
+
+  it("does not add azure fields for non-azure URLs", () => {
+    const result = applyCustomApiConfig({
+      config: {},
+      baseUrl: "https://llm.example.com/v1",
+      modelId: "foo-large",
+      compatibility: "openai",
+      apiKey: "key123",
+      providerId: "custom",
+    });
+    const provider = result.config.models?.providers?.custom;
+
+    expect(provider?.api).toBe("openai-completions");
+    expect(provider?.authHeader).toBeUndefined();
+    expect(provider?.headers).toBeUndefined();
+    expect(provider?.models?.[0]?.reasoning).toBe(false);
+    expect(provider?.models?.[0]?.input).toEqual(["text"]);
+    expect(provider?.models?.[0]?.compat).toBeUndefined();
+    expect(result.config.agents?.defaults?.thinkingDefault).toBeUndefined();
+  });
+
+  it("preserves existing thinkingDefault when already set for azure", () => {
+    const result = applyCustomApiConfig({
+      config: {
+        agents: { defaults: { thinkingDefault: "high" } },
+      } as OpenClawConfig,
+      baseUrl: "https://my-resource.openai.azure.com",
+      modelId: "gpt-4.1",
+      compatibility: "openai",
+      apiKey: "key",
+    });
+    expect(result.config.agents?.defaults?.thinkingDefault).toBe("high");
+  });
 });

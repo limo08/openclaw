@@ -61,6 +61,21 @@ function transformAzureUrl(baseUrl: string, modelId: string): string {
   return `${normalizedUrl}/openai/deployments/${modelId}`;
 }
 
+/**
+ * Transforms an Azure URL into the base URL stored in config.
+ *
+ * Example:
+ *   https://my-resource.openai.azure.com
+ *   => https://my-resource.openai.azure.com/openai/v1
+ */
+function transformAzureConfigUrl(baseUrl: string): string {
+  const normalizedUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
+  if (normalizedUrl.endsWith("/openai/v1")) {
+    return normalizedUrl;
+  }
+  return `${normalizedUrl}/openai/v1`;
+}
+
 export type CustomApiCompatibility = "openai" | "anthropic";
 type CustomApiCompatibilityChoice = CustomApiCompatibility | "unknown";
 export type CustomApiResult = {
@@ -572,8 +587,9 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
     throw new CustomApiError("invalid_model_id", "Custom provider model ID is required.");
   }
 
+  const isAzure = isAzureUrl(baseUrl);
   // Transform Azure URLs to include the deployment path for API calls
-  const resolvedBaseUrl = isAzureUrl(baseUrl) ? transformAzureUrl(baseUrl, modelId) : baseUrl;
+  const resolvedBaseUrl = isAzure ? transformAzureConfigUrl(baseUrl) : baseUrl;
 
   const providerIdResult = resolveCustomProviderId({
     config: params.config,
@@ -597,15 +613,26 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   const existingProvider = providers[providerId];
   const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
   const hasModel = existingModels.some((model) => model.id === modelId);
-  const nextModel = {
-    id: modelId,
-    name: `${modelId} (Custom Provider)`,
-    contextWindow: DEFAULT_CONTEXT_WINDOW,
-    maxTokens: DEFAULT_MAX_TOKENS,
-    input: ["text"] as ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    reasoning: false,
-  };
+  const nextModel = isAzure
+    ? {
+        id: modelId,
+        name: `${modelId} (Custom Provider)`,
+        contextWindow: DEFAULT_CONTEXT_WINDOW,
+        maxTokens: DEFAULT_MAX_TOKENS,
+        input: ["text", "image"] as Array<"text" | "image">,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        reasoning: false,
+        compat: { supportsStore: false },
+      }
+    : {
+        id: modelId,
+        name: `${modelId} (Custom Provider)`,
+        contextWindow: DEFAULT_CONTEXT_WINDOW,
+        maxTokens: DEFAULT_MAX_TOKENS,
+        input: ["text"] as ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        reasoning: false,
+      };
   const mergedModels = hasModel
     ? existingModels.map((model) =>
         model.id === modelId
@@ -620,6 +647,16 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   const normalizedApiKey =
     normalizeOptionalProviderApiKey(params.apiKey) ??
     normalizeOptionalProviderApiKey(existingApiKey);
+  
+  const providerApi = isAzure
+    ? ("openai-responses" as const)
+    : resolveProviderApi(params.compatibility);
+  const azureHeaders =
+    isAzure && normalizedApiKey && typeof normalizedApiKey === "string"
+      ? { "api-key": normalizedApiKey }
+      : isAzure && normalizedApiKey
+        ? { "api-key": normalizedApiKey }
+        : undefined;
 
   let config: OpenClawConfig = {
     ...params.config,
@@ -631,8 +668,10 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
         [providerId]: {
           ...existingProviderRest,
           baseUrl: resolvedBaseUrl,
-          api: resolveProviderApi(params.compatibility),
+          api: providerApi,
           ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
+          ...(isAzure ? { authHeader: false } : {}),
+          ...(azureHeaders ? { headers: azureHeaders } : {}),
           models: mergedModels.length > 0 ? mergedModels : [nextModel],
         },
       },
@@ -640,6 +679,18 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   };
 
   config = applyPrimaryModel(config, modelRef);
+  if (isAzure) {
+    config = {
+      ...config,
+      agents: {
+        ...config.agents,
+        defaults: {
+          ...config.agents?.defaults,
+          thinkingDefault: config.agents?.defaults?.thinkingDefault ?? "medium",
+        },
+      },
+    };
+  }
   if (alias) {
     config = {
       ...config,
