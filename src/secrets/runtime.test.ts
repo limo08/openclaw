@@ -94,6 +94,26 @@ function buildTestWebSearchProviders(): PluginWebSearchProviderEntry[] {
 
 const OPENAI_ENV_KEY_REF = { source: "env", provider: "default", id: "OPENAI_API_KEY" } as const;
 
+function webSearchPluginId(provider: "brave" | "gemini" | "grok" | "kimi" | "perplexity") {
+  return provider === "gemini"
+    ? "google"
+    : provider === "grok"
+      ? "xai"
+      : provider === "kimi"
+        ? "moonshot"
+        : provider;
+}
+
+function readWebSearchApiKey(
+  config: OpenClawConfig,
+  provider: "brave" | "gemini" | "grok" | "kimi" | "perplexity",
+): unknown {
+  const entries = config.plugins?.entries as
+    | Record<string, { config?: { webSearch?: { apiKey?: unknown } } }>
+    | undefined;
+  return entries?.[webSearchPluginId(provider)]?.config?.webSearch?.apiKey;
+}
+
 function createOpenAiFileModelsConfig(): NonNullable<OpenClawConfig["models"]> {
   return {
     providers: {
@@ -205,7 +225,19 @@ describe("secrets runtime snapshot", () => {
       tools: {
         web: {
           search: {
-            apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_API_KEY" },
+            provider: "brave",
+          },
+        },
+      },
+      plugins: {
+        entries: {
+          brave: {
+            enabled: true,
+            config: {
+              webSearch: {
+                apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_API_KEY" },
+              },
+            },
           },
         },
       },
@@ -278,9 +310,10 @@ describe("secrets runtime snapshot", () => {
       provider: "default",
       id: "SLACK_WORK_APP_TOKEN_REF",
     });
-    expect(snapshot.config.tools?.web?.search?.apiKey).toBe("web-search-ref");
-    expect(snapshot.warnings.map((warning) => warning.path)).toEqual(
-      expect.arrayContaining(["channels.slack.accounts.work.appToken"]),
+    expect(readWebSearchApiKey(snapshot.config, "brave")).toBe("web-search-ref");
+    expect(snapshot.warnings).toHaveLength(4);
+    expect(snapshot.warnings.map((warning) => warning.path)).toContain(
+      "channels.slack.accounts.work.appToken",
     );
     expect(snapshot.authStores[0]?.store.profiles["openai:default"]).toMatchObject({
       type: "api_key",
@@ -464,9 +497,25 @@ describe("secrets runtime snapshot", () => {
             search: {
               enabled: true,
               provider: "brave",
-              apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_API_KEY" },
-              grok: {
-                apiKey: { source: "env", provider: "default", id: "MISSING_GROK_API_KEY" },
+            },
+          },
+        },
+        plugins: {
+          entries: {
+            brave: {
+              enabled: true,
+              config: {
+                webSearch: {
+                  apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_API_KEY" },
+                },
+              },
+            },
+            xai: {
+              enabled: true,
+              config: {
+                webSearch: {
+                  apiKey: { source: "env", provider: "default", id: "MISSING_GROK_API_KEY" },
+                },
               },
             },
           },
@@ -479,8 +528,8 @@ describe("secrets runtime snapshot", () => {
       loadAuthStore: () => ({ version: 1, profiles: {} }),
     });
 
-    expect(snapshot.config.tools?.web?.search?.apiKey).toBe("web-search-ref");
-    expect(snapshot.config.tools?.web?.search?.grok?.apiKey).toEqual({
+    expect(readWebSearchApiKey(snapshot.config, "brave")).toBe("web-search-ref");
+    expect(readWebSearchApiKey(snapshot.config, "grok")).toEqual({
       source: "env",
       provider: "default",
       id: "MISSING_GROK_API_KEY",
@@ -502,9 +551,26 @@ describe("secrets runtime snapshot", () => {
           web: {
             search: {
               enabled: true,
-              apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_API_KEY" },
-              gemini: {
-                apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+              provider: "brave",
+            },
+          },
+        },
+        plugins: {
+          entries: {
+            brave: {
+              enabled: true,
+              config: {
+                webSearch: {
+                  apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_API_KEY" },
+                },
+              },
+            },
+            google: {
+              enabled: true,
+              config: {
+                webSearch: {
+                  apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+                },
               },
             },
           },
@@ -518,8 +584,8 @@ describe("secrets runtime snapshot", () => {
       loadAuthStore: () => ({ version: 1, profiles: {} }),
     });
 
-    expect(snapshot.config.tools?.web?.search?.apiKey).toBe("web-search-ref");
-    expect(snapshot.config.tools?.web?.search?.gemini?.apiKey).toEqual({
+    expect(readWebSearchApiKey(snapshot.config, "brave")).toBe("web-search-ref");
+    expect(readWebSearchApiKey(snapshot.config, "gemini")).toEqual({
       source: "env",
       provider: "default",
       id: "WEB_SEARCH_GEMINI_API_KEY",
@@ -543,9 +609,17 @@ describe("secrets runtime snapshot", () => {
             search: {
               enabled: true,
               provider: "gemini",
-              gemini: {
-                enabled: false,
-                apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+            },
+          },
+        },
+        plugins: {
+          entries: {
+            google: {
+              enabled: false,
+              config: {
+                webSearch: {
+                  apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+                },
               },
             },
           },
@@ -558,7 +632,7 @@ describe("secrets runtime snapshot", () => {
       loadAuthStore: () => ({ version: 1, profiles: {} }),
     });
 
-    expect(snapshot.config.tools?.web?.search?.gemini?.apiKey).toBe("web-search-gemini-ref");
+    expect(readWebSearchApiKey(snapshot.config, "gemini")).toBe("web-search-gemini-ref");
     expect(snapshot.warnings.map((warning) => warning.path)).not.toContain(
       "plugins.entries.google.config.webSearch.apiKey",
     );
@@ -573,11 +647,20 @@ describe("secrets runtime snapshot", () => {
               search: {
                 enabled: true,
                 provider: "gemini",
-                gemini: {
-                  apiKey: {
-                    source: "env",
-                    provider: "default",
-                    id: "MISSING_WEB_SEARCH_GEMINI_API_KEY",
+              },
+            },
+          },
+          plugins: {
+            entries: {
+              google: {
+                enabled: true,
+                config: {
+                  webSearch: {
+                    apiKey: {
+                      source: "env",
+                      provider: "default",
+                      id: "MISSING_WEB_SEARCH_GEMINI_API_KEY",
+                    },
                   },
                 },
               },
@@ -598,8 +681,17 @@ describe("secrets runtime snapshot", () => {
           web: {
             search: {
               provider: "gemini",
-              gemini: {
-                apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+            },
+          },
+        },
+        plugins: {
+          entries: {
+            google: {
+              enabled: true,
+              config: {
+                webSearch: {
+                  apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+                },
               },
             },
           },
@@ -958,8 +1050,17 @@ describe("secrets runtime snapshot", () => {
             web: {
               search: {
                 provider: "gemini",
-                gemini: {
-                  apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+              },
+            },
+          },
+          plugins: {
+            entries: {
+              google: {
+                enabled: true,
+                config: {
+                  webSearch: {
+                    apiKey: { source: "env", provider: "default", id: "WEB_SEARCH_GEMINI_API_KEY" },
+                  },
                 },
               },
             },
@@ -996,11 +1097,20 @@ describe("secrets runtime snapshot", () => {
             web: {
               search: {
                 provider: "gemini",
-                gemini: {
-                  apiKey: {
-                    source: "env",
-                    provider: "default",
-                    id: "MISSING_WEB_SEARCH_GEMINI_API_KEY",
+              },
+            },
+          },
+          plugins: {
+            entries: {
+              google: {
+                enabled: true,
+                config: {
+                  webSearch: {
+                    apiKey: {
+                      source: "env",
+                      provider: "default",
+                      id: "MISSING_WEB_SEARCH_GEMINI_API_KEY",
+                    },
                   },
                 },
               },
@@ -1013,8 +1123,10 @@ describe("secrets runtime snapshot", () => {
 
       const activeAfterFailure = getActiveSecretsRuntimeSnapshot();
       expect(activeAfterFailure).not.toBeNull();
-      expect(loadConfig().tools?.web?.search?.gemini?.apiKey).toBe("web-search-gemini-runtime-key");
-      expect(activeAfterFailure?.sourceConfig.tools?.web?.search?.gemini?.apiKey).toEqual({
+      expect(readWebSearchApiKey(loadConfig(), "gemini")).toBe("web-search-gemini-runtime-key");
+      expect(
+        readWebSearchApiKey(activeAfterFailure?.sourceConfig as OpenClawConfig, "gemini"),
+      ).toEqual({
         source: "env",
         provider: "default",
         id: "WEB_SEARCH_GEMINI_API_KEY",
@@ -1024,10 +1136,7 @@ describe("secrets runtime snapshot", () => {
       const persistedConfig = JSON.parse(
         await fs.readFile(path.join(home, ".openclaw", "openclaw.json"), "utf8"),
       ) as OpenClawConfig;
-      const persistedGoogleWebSearchConfig = persistedConfig.plugins?.entries?.google?.config as
-        | { webSearch?: { apiKey?: unknown } }
-        | undefined;
-      expect(persistedGoogleWebSearchConfig?.webSearch?.apiKey).toEqual({
+      expect(readWebSearchApiKey(persistedConfig, "gemini")).toEqual({
         source: "env",
         provider: "default",
         id: "MISSING_WEB_SEARCH_GEMINI_API_KEY",
@@ -1140,12 +1249,29 @@ describe("secrets runtime snapshot", () => {
         web: {
           search: {
             enabled: false,
-            apiKey: { source: "env", provider: "default", id: "DISABLED_WEB_SEARCH_API_KEY" },
-            gemini: {
-              apiKey: {
-                source: "env",
-                provider: "default",
-                id: "DISABLED_WEB_SEARCH_GEMINI_API_KEY",
+            provider: "brave",
+          },
+        },
+      },
+      plugins: {
+        entries: {
+          brave: {
+            enabled: true,
+            config: {
+              webSearch: {
+                apiKey: { source: "env", provider: "default", id: "DISABLED_WEB_SEARCH_API_KEY" },
+              },
+            },
+          },
+          google: {
+            enabled: true,
+            config: {
+              webSearch: {
+                apiKey: {
+                  source: "env",
+                  provider: "default",
+                  id: "DISABLED_WEB_SEARCH_GEMINI_API_KEY",
+                },
               },
             },
           },

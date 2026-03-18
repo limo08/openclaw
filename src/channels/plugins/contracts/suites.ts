@@ -43,7 +43,7 @@ function resolveContractMessageDiscovery(params: {
       capabilities: [] as readonly ChannelMessageCapability[],
     };
   }
-  const discovery = actions.describeMessageTool({ cfg: params.cfg }) ?? null;
+  const discovery = actions.describeMessageTool?.({ cfg: params.cfg }) ?? null;
   return {
     actions: Array.isArray(discovery?.actions) ? [...discovery.actions] : [],
     capabilities: Array.isArray(discovery?.capabilities) ? discovery.capabilities : [],
@@ -142,6 +142,10 @@ type ChannelActionsContractCase = {
   expectedCapabilities?: readonly ChannelMessageCapability[];
   beforeTest?: () => void;
 };
+
+function hasActionsDiscoverySurface(actions: ChannelPlugin["actions"] | undefined): boolean {
+  return typeof actions?.describeMessageTool === "function";
+}
 
 export function installChannelActionsContractSuite(params: {
   plugin: Pick<ChannelPlugin, "id" | "actions">;

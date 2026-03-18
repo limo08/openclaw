@@ -46,6 +46,8 @@ describe("config view", () => {
     setBorderRadius: vi.fn(),
     gatewayUrl: "",
     assistantName: "OpenClaw",
+    borderRadius: 50,
+    setBorderRadius: vi.fn(),
   });
 
   function findActionButtons(container: HTMLElement): {
