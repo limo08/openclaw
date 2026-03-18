@@ -2622,6 +2622,7 @@ public struct CronJob: Codable, Sendable {
     public let id: String
     public let agentid: String?
     public let sessionkey: String?
+    public let reusesession: Bool?
     public let name: String
     public let description: String?
     public let enabled: Bool
@@ -2640,6 +2641,7 @@ public struct CronJob: Codable, Sendable {
         id: String,
         agentid: String?,
         sessionkey: String?,
+        reusesession: Bool?,
         name: String,
         description: String?,
         enabled: Bool,
@@ -2657,6 +2659,7 @@ public struct CronJob: Codable, Sendable {
         self.id = id
         self.agentid = agentid
         self.sessionkey = sessionkey
+        self.reusesession = reusesession
         self.name = name
         self.description = description
         self.enabled = enabled
@@ -2676,6 +2679,7 @@ public struct CronJob: Codable, Sendable {
         case id
         case agentid = "agentId"
         case sessionkey = "sessionKey"
+        case reusesession = "reuseSession"
         case name
         case description
         case enabled
@@ -2736,6 +2740,7 @@ public struct CronAddParams: Codable, Sendable {
     public let name: String
     public let agentid: AnyCodable?
     public let sessionkey: AnyCodable?
+    public let reusesession: Bool?
     public let description: String?
     public let enabled: Bool?
     public let deleteafterrun: Bool?
@@ -2750,6 +2755,7 @@ public struct CronAddParams: Codable, Sendable {
         name: String,
         agentid: AnyCodable?,
         sessionkey: AnyCodable?,
+        reusesession: Bool?,
         description: String?,
         enabled: Bool?,
         deleteafterrun: Bool?,
@@ -2763,6 +2769,7 @@ public struct CronAddParams: Codable, Sendable {
         self.name = name
         self.agentid = agentid
         self.sessionkey = sessionkey
+        self.reusesession = reusesession
         self.description = description
         self.enabled = enabled
         self.deleteafterrun = deleteafterrun
@@ -2778,6 +2785,7 @@ public struct CronAddParams: Codable, Sendable {
         case name
         case agentid = "agentId"
         case sessionkey = "sessionKey"
+        case reusesession = "reuseSession"
         case description
         case enabled
         case deleteafterrun = "deleteAfterRun"
