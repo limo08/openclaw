@@ -115,12 +115,37 @@ export const telegramBotRuntimeForTest = {
   apiThrottler: () => throttlerSpy(),
 } as unknown as TelegramBotRuntimeForTest;
 
-const mediaHarnessReplySpy = vi.hoisted(() =>
-  vi.fn(async (_ctx: MsgContext, opts?: GetReplyOptions) => {
-    await opts?.onReplyStart?.();
-    return undefined;
-  }),
-);
+const mediaHarnessReplySpy = vi.hoisted(() => vi.fn(async () => undefined));
+type DispatchReplyWithBufferedBlockDispatcherFn =
+  typeof import("openclaw/plugin-sdk/reply-runtime").dispatchReplyWithBufferedBlockDispatcher;
+type DispatchReplyHarnessParams = Parameters<DispatchReplyWithBufferedBlockDispatcherFn>[0];
+
+let actualDispatchReplyWithBufferedBlockDispatcherPromise:
+  | Promise<DispatchReplyWithBufferedBlockDispatcherFn>
+  | undefined;
+
+async function getActualDispatchReplyWithBufferedBlockDispatcher() {
+  actualDispatchReplyWithBufferedBlockDispatcherPromise ??=
+    import("../../../src/auto-reply/reply/provider-dispatcher.js").then(
+      (module) =>
+        module.dispatchReplyWithBufferedBlockDispatcher as DispatchReplyWithBufferedBlockDispatcherFn,
+    );
+  return await actualDispatchReplyWithBufferedBlockDispatcherPromise;
+}
+
+async function dispatchReplyWithBufferedBlockDispatcherViaActual(
+  params: DispatchReplyHarnessParams,
+) {
+  const actualDispatchReplyWithBufferedBlockDispatcher =
+    await getActualDispatchReplyWithBufferedBlockDispatcher();
+  return await actualDispatchReplyWithBufferedBlockDispatcher({
+    ...params,
+    replyResolver: async (ctx, opts) => {
+      await opts?.onReplyStart?.();
+      return await mediaHarnessReplySpy(ctx, opts);
+    },
+  });
+}
 
 const mediaHarnessDispatchReplyWithBufferedBlockDispatcher = vi.hoisted(() =>
   vi.fn(async (params) => {
