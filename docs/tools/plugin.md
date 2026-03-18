@@ -112,7 +112,213 @@ They are shown in the plugin list as `format=bundle`, with a subtype of
 See [Plugin bundles](/plugins/bundles) for the exact detection rules, mapping
 behavior, and current support matrix.
 
-## Config
+Today, OpenClaw treats these as **capability packs**, not native runtime
+plugins:
+
+- supported now: bundled `skills`
+- supported now: Claude `commands/` markdown roots, mapped into the normal
+  OpenClaw skill loader
+- supported now: Claude bundle `settings.json` defaults for embedded Pi agent
+  settings (with shell override keys sanitized)
+- supported now: bundle MCP config, merged into embedded Pi agent settings as
+  `mcpServers`, with supported stdio bundle MCP tools exposed during embedded
+  Pi agent turns
+- supported now: Cursor `.cursor/commands/*.md` roots, mapped into the normal
+  OpenClaw skill loader
+- supported now: Codex bundle hook directories that use the OpenClaw hook-pack
+  layout (`HOOK.md` + `handler.ts`/`handler.js`)
+- detected but not wired yet: other declared bundle capabilities such as
+  agents, Claude hook automation, Cursor rules/hooks metadata, app/LSP
+  metadata, output styles
+
+That means bundle install/discovery/list/info/enablement all work, and bundle
+skills, Claude command-skills, Claude bundle settings defaults, and compatible
+Codex hook directories load when the bundle is enabled. Supported bundle MCP
+servers may also run as subprocesses for embedded Pi tool calls when they use
+supported stdio transport, but bundle runtime modules are not loaded
+in-process.
+
+Bundle hook support is limited to the normal OpenClaw hook directory format
+(`HOOK.md` plus `handler.ts`/`handler.js` under the declared hook roots).
+Vendor-specific shell/JSON hook runtimes, including Claude `hooks.json`, are
+only detected today and are not executed directly.
+
+## Execution model
+
+Native OpenClaw plugins run **in-process** with the Gateway. They are not
+sandboxed. A loaded native plugin has the same process-level trust boundary as
+core code.
+
+Implications:
+
+- a native plugin can register tools, network handlers, hooks, and services
+- a native plugin bug can crash or destabilize the gateway
+- a malicious native plugin is equivalent to arbitrary code execution inside
+  the OpenClaw process
+
+Compatible bundles are safer by default because OpenClaw currently treats them
+as metadata/content packs. In current releases, that mostly means bundled
+skills.
+
+Use allowlists and explicit install/load paths for non-bundled plugins. Treat
+workspace plugins as development-time code, not production defaults.
+
+Important trust note:
+
+- `plugins.allow` trusts **plugin ids**, not source provenance.
+- A workspace plugin with the same id as a bundled plugin intentionally shadows
+  the bundled copy when that workspace plugin is enabled/allowlisted.
+- This is normal and useful for local development, patch testing, and hotfixes.
+
+## Available plugins (official)
+
+- Microsoft Teams is plugin-only as of 2026.1.15; install `@openclaw/msteams` if you use Teams.
+- Memory (Core) — bundled memory search plugin (enabled by default via `plugins.slots.memory`)
+- Memory (LanceDB) — bundled long-term memory plugin (auto-recall/capture; set `plugins.slots.memory = "memory-lancedb"`)
+- Morph — bundled fast compaction (33k tok/s) and AI-powered codebase search. Set `compaction.provider = "morph"` and configure API key via `MORPH_API_KEY` env var or plugin config. See [Compaction](/concepts/compaction).
+- [Voice Call](/plugins/voice-call) — `@openclaw/voice-call`
+- [Zalo Personal](/plugins/zalouser) — `@openclaw/zalouser`
+- [Matrix](/channels/matrix) — `@openclaw/matrix`
+- [Nostr](/channels/nostr) — `@openclaw/nostr`
+- [Zalo](/channels/zalo) — `@openclaw/zalo`
+- [Microsoft Teams](/channels/msteams) — `@openclaw/msteams`
+- Anthropic provider runtime — bundled as `anthropic` (enabled by default)
+- BytePlus provider catalog — bundled as `byteplus` (enabled by default)
+- Cloudflare AI Gateway provider catalog — bundled as `cloudflare-ai-gateway` (enabled by default)
+- Google web search + Gemini CLI OAuth — bundled as `google` (web search auto-loads it; provider auth stays opt-in)
+- GitHub Copilot provider runtime — bundled as `github-copilot` (enabled by default)
+- Hugging Face provider catalog — bundled as `huggingface` (enabled by default)
+- Kilo Gateway provider runtime — bundled as `kilocode` (enabled by default)
+- Kimi Coding provider catalog — bundled as `kimi-coding` (enabled by default)
+- MiniMax provider catalog + usage + OAuth — bundled as `minimax` (enabled by default; owns `minimax` and `minimax-portal`)
+- Mistral provider capabilities — bundled as `mistral` (enabled by default)
+- Model Studio provider catalog — bundled as `modelstudio` (enabled by default)
+- Moonshot provider runtime — bundled as `moonshot` (enabled by default)
+- NVIDIA provider catalog — bundled as `nvidia` (enabled by default)
+- ElevenLabs speech provider — bundled as `elevenlabs` (enabled by default)
+- Microsoft speech provider — bundled as `microsoft` (enabled by default; legacy `edge` input maps here)
+- OpenAI provider runtime — bundled as `openai` (enabled by default; owns both `openai` and `openai-codex`)
+- OpenCode Go provider capabilities — bundled as `opencode-go` (enabled by default)
+- OpenCode Zen provider capabilities — bundled as `opencode` (enabled by default)
+- OpenRouter provider runtime — bundled as `openrouter` (enabled by default)
+- Qianfan provider catalog — bundled as `qianfan` (enabled by default)
+- Qwen OAuth (provider auth + catalog) — bundled as `qwen-portal-auth` (enabled by default)
+- Synthetic provider catalog — bundled as `synthetic` (enabled by default)
+- Together provider catalog — bundled as `together` (enabled by default)
+- Venice provider catalog — bundled as `venice` (enabled by default)
+- Vercel AI Gateway provider catalog — bundled as `vercel-ai-gateway` (enabled by default)
+- Volcengine provider catalog — bundled as `volcengine` (enabled by default)
+- Xiaomi provider catalog + usage — bundled as `xiaomi` (enabled by default)
+- Z.AI provider runtime — bundled as `zai` (enabled by default)
+- Copilot Proxy (provider auth) — local VS Code Copilot Proxy bridge; distinct from built-in `github-copilot` device login (bundled, disabled by default)
+
+Native OpenClaw plugins are **TypeScript modules** loaded at runtime via jiti.
+**Config validation does not execute plugin code**; it uses the plugin manifest
+and JSON Schema instead. See [Plugin manifest](/plugins/manifest).
+
+Native OpenClaw plugins can register capabilities and surfaces:
+
+**Capabilities** (public plugin model):
+
+- Text inference providers (model catalogs, auth, runtime hooks)
+- Speech providers
+- Media understanding providers
+- Image generation providers
+- Web search providers
+- Channel / messaging connectors
+
+**Surfaces** (supporting infrastructure):
+
+- Gateway RPC methods and HTTP routes
+- Agent tools
+- CLI commands
+- Background services
+- Context engines
+- Optional config validation
+- **Skills** (by listing `skills` directories in the plugin manifest)
+- **Auto-reply commands** (execute without invoking the AI agent)
+
+Native OpenClaw plugins run in-process with the Gateway (see
+[Execution model](#execution-model) for trust implications).
+Tool authoring guide: [Plugin agent tools](/plugins/agent-tools).
+
+Think of these registrations as **capability claims**. A plugin is not supposed
+to reach into random internals and "just make it work." It should register
+against explicit surfaces that OpenClaw understands, validates, and can expose
+consistently across config, onboarding, status, docs, and runtime behavior.
+
+## Contracts and enforcement
+
+The plugin API surface is intentionally typed and centralized in
+`OpenClawPluginApi`. That contract defines the supported registration points and
+the runtime helpers a plugin may rely on.
+
+Why this matters:
+
+- plugin authors get one stable internal standard
+- core can reject duplicate ownership such as two plugins registering the same
+  provider id
+- startup can surface actionable diagnostics for malformed registration
+- contract tests can enforce bundled-plugin ownership and prevent silent drift
+
+There are two layers of enforcement:
+
+1. **runtime registration enforcement**
+   The plugin registry validates registrations as plugins load. Examples:
+   duplicate provider ids, duplicate speech provider ids, and malformed
+   registrations produce plugin diagnostics instead of undefined behavior.
+2. **contract tests**
+   Bundled plugins are captured in contract registries during test runs so
+   OpenClaw can assert ownership explicitly. Today this is used for model
+   providers, speech providers, web search providers, and bundled registration
+   ownership.
+
+The practical effect is that OpenClaw knows, up front, which plugin owns which
+surface. That lets core and channels compose seamlessly because ownership is
+declared, typed, and testable rather than implicit.
+
+### What belongs in a contract
+
+Good plugin contracts are:
+
+- typed
+- small
+- capability-specific
+- owned by core
+- reusable by multiple plugins
+- consumable by channels/features without vendor knowledge
+
+Bad plugin contracts are:
+
+- vendor-specific policy hidden in core
+- one-off plugin escape hatches that bypass the registry
+- channel code reaching straight into a vendor implementation
+- ad hoc runtime objects that are not part of `OpenClawPluginApi` or
+  `api.runtime`
+
+When in doubt, raise the abstraction level: define the capability first, then
+let plugins plug into it.
+
+## Export boundary
+
+OpenClaw exports capabilities, not implementation convenience.
+
+Keep capability registration public. Trim non-contract helper exports:
+
+- bundled-plugin-specific helper subpaths
+- runtime plumbing subpaths not intended as public API
+- vendor-specific convenience helpers
+- setup/onboarding helpers that are implementation details
+
+## Plugin inspection
+
+Use `openclaw plugins inspect <id>` for deep plugin introspection. This is the
+canonical command for understanding a plugin's shape and registration behavior.
+
+```bash
+openclaw plugins inspect openai
+openclaw plugins inspect openai --json
+```
 
 ```json5
 {
