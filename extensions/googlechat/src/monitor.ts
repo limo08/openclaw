@@ -321,7 +321,7 @@ async function processMessageWithPipeline(params: {
       ...prefixOptions,
       deliver: async (payload) => {
         await deliverGoogleChatReply({
-          payload,
+          payload: { ...payload, replyToId: payload.replyToId ?? ctxPayload.ReplyToId },
           account,
           spaceId,
           runtime,
