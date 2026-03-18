@@ -11,8 +11,8 @@ import {
   loadSessionStore,
   resolveMainSessionKey,
   resolveSessionFilePath,
-  resolveSessionFilePathOptions,
   resolveSessionTranscriptsDirForAgent,
+  resolveSessionTranscriptPathInDir,
   resolveStorePath,
 } from "../config/sessions.js";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
@@ -54,6 +54,19 @@ function existsFile(filePath: string): boolean {
   } catch {
     return false;
   }
+}
+
+function resolveExistingSessionTranscriptPath(
+  sessionId: string,
+  entry: { sessionFile?: string } | undefined,
+  sessionsDir: string,
+): string {
+  const configuredPath = resolveSessionFilePath(sessionId, entry, { sessionsDir });
+  if (existsFile(configuredPath)) {
+    return configuredPath;
+  }
+  const defaultPath = resolveSessionTranscriptPathInDir(sessionId, sessionsDir);
+  return existsFile(defaultPath) ? defaultPath : configuredPath;
 }
 
 function canWriteDir(dir: string): boolean {
@@ -709,7 +722,6 @@ export async function noteStateIntegrity(
   }
 
   const store = loadSessionStore(storePath);
-  const sessionPathOpts = resolveSessionFilePathOptions({ agentId, storePath });
   const entries = Object.entries(store).filter(([, entry]) => entry && typeof entry === "object");
   if (entries.length > 0) {
     const recent = entries
@@ -726,7 +738,7 @@ export async function noteStateIntegrity(
       if (!sessionId) {
         return false;
       }
-      const transcriptPath = resolveSessionFilePath(sessionId, entry, sessionPathOpts);
+      const transcriptPath = resolveExistingSessionTranscriptPath(sessionId, entry, sessionsDir);
       return !existsFile(transcriptPath);
     });
     if (missing.length > 0) {
@@ -743,10 +755,10 @@ export async function noteStateIntegrity(
     const mainKey = resolveMainSessionKey(cfg);
     const mainEntry = store[mainKey];
     if (mainEntry?.sessionId) {
-      const transcriptPath = resolveSessionFilePath(
+      const transcriptPath = resolveExistingSessionTranscriptPath(
         mainEntry.sessionId,
         mainEntry,
-        sessionPathOpts,
+        sessionsDir,
       );
       if (!existsFile(transcriptPath)) {
         warnings.push(
@@ -771,7 +783,7 @@ export async function noteStateIntegrity(
       }
       try {
         referencedTranscriptPaths.add(
-          path.resolve(resolveSessionFilePath(entry.sessionId, entry, sessionPathOpts)),
+          path.resolve(resolveExistingSessionTranscriptPath(entry.sessionId, entry, sessionsDir)),
         );
       } catch {
         // ignore invalid legacy paths
