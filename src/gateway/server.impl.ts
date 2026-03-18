@@ -17,8 +17,11 @@ import {
   loadConfig,
   migrateLegacyConfig,
   readConfigFileSnapshot,
+  setRuntimeConfigSnapshot,
   writeConfigFile,
 } from "../config/config.js";
+import { getConfigSource, setConfigSource } from "../config/sources/current.js";
+import { resolveConfigSource } from "../config/sources/resolve.js";
 import { formatConfigIssueLines } from "../config/issue-format.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
@@ -69,6 +72,7 @@ import { runSetupWizard } from "../wizard/setup.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { startChannelHealthMonitor } from "./channel-health-monitor.js";
 import { startGatewayConfigReloader } from "./config-reload.js";
+import type { GatewayReloadPlan } from "./config-reload-plan.js";
 import type { ControlUiRootState } from "./control-ui.js";
 import {
   GATEWAY_EVENT_UPDATE_AVAILABLE,
@@ -358,6 +362,8 @@ export async function startGatewayServer(
     description: "raw stream log path override",
   });
 
+  setConfigSource(resolveConfigSource(process.env));
+
   let configSnapshot = await readConfigFileSnapshot();
   if (configSnapshot.legacyIssues.length > 0) {
     if (isNixMode) {
@@ -505,6 +511,12 @@ export async function startGatewayServer(
     writeConfig: writeConfigFile,
     log,
   });
+
+  // Nacos source: keep loadConfig() in sync with the config we use (no file path).
+  const configSource = getConfigSource();
+  if (configSource?.kind === "nacos") {
+    setRuntimeConfigSnapshot(cfgAtStart);
+  }
 
   initSubagentRegistry();
   const defaultAgentId = resolveDefaultAgentId(cfgAtStart);
@@ -1022,6 +1034,10 @@ export async function startGatewayServer(
   const configReloader = minimalTestGateway
     ? { stop: async () => {} }
     : (() => {
+        const source = getConfigSource();
+        if (!source) {
+          throw new Error("gateway config reloader: config source not set");
+        }
         const { applyHotReload, requestGatewayRestart } = createGatewayReloadHandlers({
           deps,
           broadcast,
@@ -1067,10 +1083,10 @@ export async function startGatewayServer(
             }),
         });
 
-        return startGatewayConfigReloader({
+        const reloaderOpts = {
           initialConfig: cfgAtStart,
-          readSnapshot: readConfigFileSnapshot,
-          onHotReload: async (plan, nextConfig) => {
+          readSnapshot: () => source.readSnapshot(),
+          onHotReload: async (plan: GatewayReloadPlan, nextConfig: OpenClawConfig) => {
             const previousSnapshot = getActiveSecretsRuntimeSnapshot();
             const prepared = await activateRuntimeSecrets(nextConfig, {
               reason: "reload",
@@ -1078,6 +1094,9 @@ export async function startGatewayServer(
             });
             try {
               await applyHotReload(plan, prepared.config);
+              if (getConfigSource()?.kind === "nacos") {
+                setRuntimeConfigSnapshot(prepared.config);
+              }
             } catch (err) {
               if (previousSnapshot) {
                 activateSecretsRuntimeSnapshot(previousSnapshot);
@@ -1087,17 +1106,21 @@ export async function startGatewayServer(
               throw err;
             }
           },
-          onRestart: async (plan, nextConfig) => {
+          onRestart: async (plan: GatewayReloadPlan, nextConfig: OpenClawConfig) => {
             await activateRuntimeSecrets(nextConfig, { reason: "restart-check", activate: false });
             requestGatewayRestart(plan, nextConfig);
           },
           log: {
-            info: (msg) => logReload.info(msg),
-            warn: (msg) => logReload.warn(msg),
-            error: (msg) => logReload.error(msg),
+            info: (msg: string) => logReload.info(msg),
+            warn: (msg: string) => logReload.warn(msg),
+            error: (msg: string) => logReload.error(msg),
           },
-          watchPath: configSnapshot.path,
-        });
+        };
+        if (source.subscribe != null) {
+          return startGatewayConfigReloader({ ...reloaderOpts, subscribe: source.subscribe });
+        }
+        const watchPath = source.watchPath ?? configSnapshot.path;
+        return startGatewayConfigReloader({ ...reloaderOpts, watchPath });
       })();
 
   const close = createGatewayCloseHandler({
