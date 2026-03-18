@@ -271,7 +271,7 @@ export function resolveAgentWorkspaceDir(cfg: OpenClawConfig, agentId: string) {
   return stripNullBytes(path.join(stateDir, `workspace-${id}`));
 }
 
-function normalizePathForComparison(input: string): string {
+export function normalizePathForComparison(input: string): string {
   const resolved = path.resolve(stripNullBytes(resolveUserPath(input)));
   let normalized = resolved;
   // Prefer realpath when available to normalize aliases/symlinks (for example /tmp -> /private/tmp)
@@ -340,3 +340,4 @@ export function resolveAgentDir(
   const root = resolveStateDir(env);
   return path.join(root, "agents", id, "agent");
 }
+
