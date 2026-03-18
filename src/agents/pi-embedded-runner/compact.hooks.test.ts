@@ -242,6 +242,7 @@ describe("compactEmbeddedPiSessionDirect hooks", () => {
       expect.objectContaining({
         messageCount: 2,
         tokenCount: 20,
+        sessionFile: "/tmp/session.jsonl",
       }),
       expect.objectContaining({ sessionKey: "agent:main:session-1", messageProvider: "telegram" }),
     );
@@ -270,7 +271,7 @@ describe("compactEmbeddedPiSessionDirect hooks", () => {
     expect(sessionHook("compact:before")?.sessionKey).toBe("session-1");
     expect(sessionHook("compact:after")?.sessionKey).toBe("session-1");
     expect(hookRunner.runBeforeCompaction).toHaveBeenCalledWith(
-      expect.any(Object),
+      expect.objectContaining({ sessionFile: "/tmp/session.jsonl" }),
       expect.objectContaining({ sessionKey: "session-1" }),
     );
     expect(hookRunner.runAfterCompaction).toHaveBeenCalledWith(
