@@ -28,6 +28,7 @@ import {
   shouldWakeFromRestartSentinel,
 } from "./server-restart-sentinel.js";
 import { startGatewayMemoryBackend } from "./server-startup-memory.js";
+import { sweepSessionArchiveFiles } from "./session-archive-cleanup.js";
 
 const SESSION_LOCK_STALE_MS = 30 * 60 * 1000;
 
@@ -46,8 +47,9 @@ export async function startGatewaySidecars(params: {
   logChannels: { info: (msg: string) => void; error: (msg: string) => void };
   logBrowser: { error: (msg: string) => void };
 }) {
+  const stateDir = resolveStateDir(process.env);
+
   try {
-    const stateDir = resolveStateDir(process.env);
     const sessionDirs = await resolveAgentSessionDirs(stateDir);
     for (const sessionsDir of sessionDirs) {
       await cleanStaleLockFiles({
@@ -59,6 +61,17 @@ export async function startGatewaySidecars(params: {
     }
   } catch (err) {
     params.log.warn(`session lock cleanup failed on startup: ${String(err)}`);
+  }
+
+  try {
+    const archiveResult = await sweepSessionArchiveFiles({ stateDir });
+    if (archiveResult.removed > 0) {
+      params.log.warn(
+        `session archive cleanup: removed ${archiveResult.removed} stale files across ${archiveResult.directories} directories`,
+      );
+    }
+  } catch (err) {
+    params.log.warn(`session archive cleanup failed on startup: ${String(err)}`);
   }
 
   // Start OpenClaw browser control server (unless disabled via config).
