@@ -418,22 +418,77 @@ export type SendFeishuMessageParams = {
   accountId?: string;
 };
 
+/**
+ * Regex to match `<at user_id="...">...</at>` patterns produced by
+ * `formatMentionForText()` in mention.ts.
+ *
+ * Capture groups:
+ *   1 – user_id value (e.g. "ou_xxx" or "all")
+ *   2 – display name between tags
+ */
+const AT_MENTION_RE = /<at\s+user_id="([^"]+)">(.*?)<\/at>/g;
+
+/**
+ * Parse a message text string and split `<at user_id="...">name</at>` patterns
+ * into native Feishu post `at` elements, leaving the surrounding text as `md`
+ * elements. This ensures mentions render with the correct blue color in Feishu
+ * instead of inheriting the bot's identity color.
+ *
+ * When no `<at>` patterns are found the function returns a single `md` element
+ * identical to the previous behaviour.
+ */
+export function parseTextWithMentions(
+  text: string,
+): Array<Record<string, string>> {
+  const elements: Array<Record<string, string>> = [];
+  let lastIndex = 0;
+
+  // Reset the regex state for safety (global flag).
+  AT_MENTION_RE.lastIndex = 0;
+
+  let match: RegExpExecArray | null;
+  while ((match = AT_MENTION_RE.exec(text)) !== null) {
+    // Push any text before this match as an md element.
+    const before = text.slice(lastIndex, match.index);
+    if (before) {
+      elements.push({ tag: "md", text: before });
+    }
+
+    const userId = match[1];
+    const userName = match[2];
+    const atElement: Record<string, string> = { tag: "at", user_id: userId };
+    if (userName) {
+      atElement.user_name = userName;
+    }
+    elements.push(atElement);
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Push any remaining text after the last match.
+  const remaining = text.slice(lastIndex);
+  if (remaining) {
+    elements.push({ tag: "md", text: remaining });
+  }
+
+  // If no mentions were found, return a single md element (original behaviour).
+  if (elements.length === 0) {
+    return [{ tag: "md", text }];
+  }
+
+  return elements;
+}
+
 export function buildFeishuPostMessagePayload(params: { messageText: string }): {
   content: string;
   msgType: string;
 } {
   const { messageText } = params;
+  const elements = parseTextWithMentions(messageText);
   return {
     content: JSON.stringify({
       zh_cn: {
-        content: [
-          [
-            {
-              tag: "md",
-              text: messageText,
-            },
-          ],
-        ],
+        content: [elements],
       },
     }),
     msgType: "post",
@@ -455,6 +510,7 @@ export async function sendMessageFeishu(
   if (mentions && mentions.length > 0) {
     rawText = buildMentionedMessage(mentions, rawText);
   }
+
   const messageText = getFeishuRuntime().channel.text.convertMarkdownTables(rawText, tableMode);
 
   const { content, msgType } = buildFeishuPostMessagePayload({ messageText });

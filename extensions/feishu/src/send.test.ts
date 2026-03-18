@@ -1,10 +1,12 @@
 import type { ClawdbotConfig } from "openclaw/plugin-sdk/feishu";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildFeishuPostMessagePayload,
   buildStructuredCard,
   editMessageFeishu,
   getMessageFeishu,
   listFeishuThreadMessages,
+  parseTextWithMentions,
   resolveFeishuCardTemplate,
 } from "./send.js";
 
@@ -40,6 +42,110 @@ vi.mock("./runtime.js", () => ({
     },
   }),
 }));
+
+describe("parseTextWithMentions", () => {
+  it("returns a single md element for plain text without mentions", () => {
+    const result = parseTextWithMentions("Hello world");
+    expect(result).toEqual([{ tag: "md", text: "Hello world" }]);
+  });
+
+  it("parses a single mention at the start", () => {
+    const result = parseTextWithMentions(
+      '<at user_id="ou_123">Alice</at> hello!',
+    );
+    expect(result).toEqual([
+      { tag: "at", user_id: "ou_123", user_name: "Alice" },
+      { tag: "md", text: " hello!" },
+    ]);
+  });
+
+  it("parses a single mention at the end", () => {
+    const result = parseTextWithMentions(
+      'hello <at user_id="ou_456">Bob</at>',
+    );
+    expect(result).toEqual([
+      { tag: "md", text: "hello " },
+      { tag: "at", user_id: "ou_456", user_name: "Bob" },
+    ]);
+  });
+
+  it("parses multiple mentions", () => {
+    const result = parseTextWithMentions(
+      '<at user_id="ou_1">Alice</at> <at user_id="ou_2">Bob</at> hi',
+    );
+    expect(result).toEqual([
+      { tag: "at", user_id: "ou_1", user_name: "Alice" },
+      { tag: "md", text: " " },
+      { tag: "at", user_id: "ou_2", user_name: "Bob" },
+      { tag: "md", text: " hi" },
+    ]);
+  });
+
+  it("handles @all mention", () => {
+    const result = parseTextWithMentions(
+      '<at user_id="all">Everyone</at> announcement',
+    );
+    expect(result).toEqual([
+      { tag: "at", user_id: "all", user_name: "Everyone" },
+      { tag: "md", text: " announcement" },
+    ]);
+  });
+
+  it("handles mention with empty display name", () => {
+    const result = parseTextWithMentions(
+      '<at user_id="ou_789"></at> test',
+    );
+    expect(result).toEqual([
+      { tag: "at", user_id: "ou_789" },
+      { tag: "md", text: " test" },
+    ]);
+  });
+
+  it("returns single md element for empty string", () => {
+    const result = parseTextWithMentions("");
+    expect(result).toEqual([{ tag: "md", text: "" }]);
+  });
+});
+
+describe("buildFeishuPostMessagePayload", () => {
+  it("produces post payload with correct structure for plain text", () => {
+    const result = buildFeishuPostMessagePayload({ messageText: "plain text" });
+    expect(result.msgType).toBe("post");
+    const parsed = JSON.parse(result.content);
+    expect(parsed.zh_cn.content).toEqual([
+      [{ tag: "md", text: "plain text" }],
+    ]);
+  });
+
+  it("splits mentions into native at elements", () => {
+    const result = buildFeishuPostMessagePayload({
+      messageText: '<at user_id="ou_123">Alice</at> Hello!',
+    });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.zh_cn.content).toEqual([
+      [
+        { tag: "at", user_id: "ou_123", user_name: "Alice" },
+        { tag: "md", text: " Hello!" },
+      ],
+    ]);
+  });
+
+  it("handles multiple mentions interleaved with text", () => {
+    const result = buildFeishuPostMessagePayload({
+      messageText:
+        '<at user_id="ou_1">Alice</at> <at user_id="ou_2">Bob</at> check this',
+    });
+    const parsed = JSON.parse(result.content);
+    expect(parsed.zh_cn.content).toEqual([
+      [
+        { tag: "at", user_id: "ou_1", user_name: "Alice" },
+        { tag: "md", text: " " },
+        { tag: "at", user_id: "ou_2", user_name: "Bob" },
+        { tag: "md", text: " check this" },
+      ],
+    ]);
+  });
+});
 
 describe("getMessageFeishu", () => {
   beforeEach(() => {
