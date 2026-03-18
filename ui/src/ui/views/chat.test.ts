@@ -824,7 +824,7 @@ describe("chat view", () => {
       option.textContent?.trim(),
     );
 
-    expect(labels).toContain("Subagent: cron-config-check");
+    expect(labels).toContain("main / Subagent: cron-config-check");
     expect(labels).not.toContain(state.sessionKey);
     expect(labels).not.toContain(
       "subagent:4f2146de-887b-4176-9abe-91140082959b · webchat:g-agent-main-subagent-4f2146de-887b-4176-9abe-91140082959b",
@@ -843,7 +843,7 @@ describe("chat view", () => {
       option.textContent?.trim(),
     );
 
-    expect(labels).toContain("subagent:4f2146de-887b-4176-9abe-91140082959b");
+    expect(labels).toContain("main / subagent:4f2146de-887b-4176-9abe-91140082959b");
     expect(labels).not.toContain("Subagent:");
   });
 
@@ -872,7 +872,7 @@ describe("chat view", () => {
       option.textContent?.trim(),
     );
 
-    expect(labels).toContain("subagent:4f2146de-887b-4176-9abe-91140082959b");
+    expect(labels).toContain("main / subagent:4f2146de-887b-4176-9abe-91140082959b");
     expect(labels).not.toContain("Subagent:");
   });
 
@@ -909,11 +909,11 @@ describe("chat view", () => {
     );
 
     expect(labels).toContain(
-      "Subagent: cron-config-check · subagent:4f2146de-887b-4176-9abe-91140082959b",
+      "main / Subagent: cron-config-check · subagent:4f2146de-887b-4176-9abe-91140082959b",
     );
     expect(labels).toContain(
-      "Subagent: cron-config-check · subagent:6fb8b84b-c31f-410f-b7df-1553c82e43c9",
+      "main / Subagent: cron-config-check · subagent:6fb8b84b-c31f-410f-b7df-1553c82e43c9",
     );
-    expect(labels).not.toContain("Subagent: cron-config-check");
+    expect(labels).not.toContain("main / Subagent: cron-config-check");
   });
 });
