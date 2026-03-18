@@ -659,7 +659,18 @@ function restoreRedactedValuesWithLookup(
         ) {
           result[key] = restoreOriginalValueOrThrow({ key, path: candidate, original: orig });
         } else if (typeof value === "object" && value !== null) {
-          result[key] = restoreRedactedValuesWithLookup(value, orig[key], lookup, candidate, hints);
+          // Check if this is a SecretRef with redacted id field (#44357)
+          const incomingObj = value as Record<string, unknown>;
+          if (isSecretRefShape(incomingObj) && incomingObj.id === REDACTED_SENTINEL) {
+            const originalObj = toObjectRecord(orig[key]);
+            if (isSecretRefShape(originalObj)) {
+              result[key] = { ...incomingObj, id: originalObj.id };
+            } else {
+              result[key] = restoreRedactedValuesWithLookup(value, orig[key], lookup, candidate, hints);
+            }
+          } else {
+            result[key] = restoreRedactedValuesWithLookup(value, orig[key], lookup, candidate, hints);
+          }
         }
         break;
       }
@@ -673,7 +684,18 @@ function restoreRedactedValuesWithLookup(
       ) {
         result[key] = restoreOriginalValueOrThrow({ key, path, original: orig });
       } else if (typeof value === "object" && value !== null) {
-        result[key] = restoreRedactedValuesGuessing(value, orig[key], path, hints);
+        // Check if this is a SecretRef with redacted id field (#44357)
+        const incomingObj = value as Record<string, unknown>;
+        if (isSecretRefShape(incomingObj) && incomingObj.id === REDACTED_SENTINEL) {
+          const originalObj = toObjectRecord(orig[key]);
+          if (isSecretRefShape(originalObj)) {
+            result[key] = { ...incomingObj, id: originalObj.id };
+          } else {
+            result[key] = restoreRedactedValuesGuessing(value, orig[key], path, hints);
+          }
+        } else {
+          result[key] = restoreRedactedValuesGuessing(value, orig[key], path, hints);
+        }
       }
     }
   }
@@ -715,7 +737,18 @@ function restoreRedactedValuesGuessing(
     ) {
       result[key] = restoreOriginalValueOrThrow({ key, path, original: orig });
     } else if (typeof value === "object" && value !== null) {
-      result[key] = restoreRedactedValuesGuessing(value, orig[key], path, hints);
+      // Check if this is a SecretRef with redacted id field (#44357)
+      const incomingObj = value as Record<string, unknown>;
+      if (isSecretRefShape(incomingObj) && incomingObj.id === REDACTED_SENTINEL) {
+        const originalObj = toObjectRecord(orig[key]);
+        if (isSecretRefShape(originalObj)) {
+          result[key] = { ...incomingObj, id: originalObj.id };
+        } else {
+          result[key] = restoreRedactedValuesGuessing(value, orig[key], path, hints);
+        }
+      } else {
+        result[key] = restoreRedactedValuesGuessing(value, orig[key], path, hints);
+      }
     } else {
       result[key] = value;
     }
