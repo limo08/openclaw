@@ -39,6 +39,10 @@ export function resolveDiscordGatewayIntents(
   if (intentsConfig?.guildMembers) {
     intents |= GatewayIntents.GuildMembers;
   }
+  if (intentsConfig?.typingIndicator) {
+    intents |= GatewayIntents.GuildMessageTyping;
+    intents |= GatewayIntents.DirectMessageTyping;
+  }
   return intents;
 }
 

@@ -1,6 +1,10 @@
 import {
+  BaseListener,
   ChannelType,
   type Client,
+  ListenerEvent,
+  type ListenerEventData,
+  type ListenerEventRawData,
   MessageCreateListener,
   MessageReactionAddListener,
   MessageReactionRemoveListener,
@@ -721,6 +725,77 @@ export class DiscordPresenceListener extends PresenceUpdateListener {
     } catch (err) {
       const logger = this.logger ?? discordEventQueueLog;
       logger.error(danger(`discord presence handler failed: ${String(err)}`));
+    }
+  }
+}
+export class DiscordTypingListener extends BaseListener {
+  readonly type = ListenerEvent.TypingStart;
+
+  private logger?: Logger;
+  private accountId?: string;
+  private cfg: LoadedConfig;
+  private botUserId?: string;
+
+  constructor(params: {
+    logger?: Logger;
+    accountId?: string;
+    cfg: LoadedConfig;
+    botUserId?: string;
+  }) {
+    super();
+    this.logger = params.logger;
+    this.accountId = params.accountId;
+    this.cfg = params.cfg;
+    this.botUserId = params.botUserId;
+  }
+
+  parseRawData(
+    data: ListenerEventRawData[typeof ListenerEvent.TypingStart],
+  ): ListenerEventData[typeof ListenerEvent.TypingStart] {
+    return data as unknown as ListenerEventData[typeof ListenerEvent.TypingStart];
+  }
+
+  async handle(data: ListenerEventData[typeof ListenerEvent.TypingStart], client: Client) {
+    try {
+      if (!data.user_id || data.user_id === this.botUserId) {
+        return;
+      }
+
+      const isGuildChannel = Boolean(data.guild_id);
+      let isDirectMessage = !isGuildChannel;
+      let isGroupDm = false;
+
+      if (!isGuildChannel) {
+        try {
+          const channel = await client.fetchChannel(data.channel_id);
+          if (channel && "type" in channel) {
+            isDirectMessage = channel.type === ChannelType.DM;
+            isGroupDm = channel.type === ChannelType.GroupDM;
+          }
+        } catch {
+          // fallback: assume DM
+        }
+      }
+
+      const route = resolveAgentRoute({
+        cfg: this.cfg,
+        channel: "discord",
+        accountId: this.accountId ?? "",
+        guildId: data.guild_id ?? undefined,
+        memberRoleIds: [],
+        peer: {
+          kind: isDirectMessage ? "direct" : isGroupDm ? "group" : "channel",
+          id: isDirectMessage ? data.user_id : data.channel_id,
+        },
+      });
+
+      enqueueSystemEvent(`[discord] User ${data.user_id} is typing in <#${data.channel_id}>`, {
+        sessionKey: route.sessionKey,
+        contextKey: `discord:typing:${data.channel_id}:${data.user_id}`,
+      });
+    } catch (err) {
+      const logger = this.logger ?? discordEventQueueLog;
+      logger.error(danger(`discord typing handler failed: ${String(err)}`));
     }
   }
 }

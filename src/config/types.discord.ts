@@ -109,6 +109,16 @@ export type DiscordIntentsConfig = {
   presence?: boolean;
   /** Enable Guild Members privileged intent (requires Portal opt-in). Default: false. */
   guildMembers?: boolean;
+  /**
+   * Surface TYPING_START events to the agent session when a user begins typing
+   * in guild channels, DMs, and Group DMs. When enabled, the agent receives a
+   * system event before the user's full message arrives. Default: false.
+   *
+   * Registers the `GuildMessageTyping` and `DirectMessageTyping` gateway intents.
+   * Neither is a privileged intent, but `GuildMessageTyping` requires bot
+   * verification for bots in >100 guilds (Discord Developer Portal opt-in).
+   */
+  typingIndicator?: boolean;
 };
 
 export type DiscordVoiceAutoJoinConfig = {
