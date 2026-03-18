@@ -454,7 +454,8 @@ describe("applyCustomApiConfig", () => {
     expect(model?.reasoning).toBe(true);
     expect(model?.compat).toEqual({ supportsStore: false });
 
-    expect(result.config.agents?.defaults?.thinkingDefault).toBe("medium");
+    const modelRef = `${providerId}/${result.modelId}`;
+    expect(result.config.agents?.defaults?.models?.[modelRef]?.params?.thinking).toBe("medium");
   });
 
   it("produces azure-specific config for Azure AI Foundry URLs", () => {
@@ -505,20 +506,30 @@ describe("applyCustomApiConfig", () => {
     expect(provider?.models?.[0]?.reasoning).toBe(false);
     expect(provider?.models?.[0]?.input).toEqual(["text"]);
     expect(provider?.models?.[0]?.compat).toBeUndefined();
-    expect(result.config.agents?.defaults?.thinkingDefault).toBeUndefined();
+    expect(
+      result.config.agents?.defaults?.models?.["custom/foo-large"]?.params?.thinking,
+    ).toBeUndefined();
   });
 
-  it("preserves existing thinkingDefault when already set for azure", () => {
+  it("preserves existing per-model thinking when already set for azure", () => {
+    const providerId = "custom-my-resource-openai-azure-com";
+    const modelRef = `${providerId}/gpt-4.1`;
     const result = applyCustomApiConfig({
       config: {
-        agents: { defaults: { thinkingDefault: "high" } },
+        agents: {
+          defaults: {
+            models: {
+              [modelRef]: { params: { thinking: "high" } },
+            },
+          },
+        },
       } as OpenClawConfig,
       baseUrl: "https://my-resource.openai.azure.com",
       modelId: "gpt-4.1",
       compatibility: "openai",
       apiKey: "key",
     });
-    expect(result.config.agents?.defaults?.thinkingDefault).toBe("high");
+    expect(result.config.agents?.defaults?.models?.[modelRef]?.params?.thinking).toBe("high");
   });
 });
 
