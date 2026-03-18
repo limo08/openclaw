@@ -894,43 +894,6 @@ export class AcpSessionManager {
       let error: { code: string; message: string } | undefined;
       let runtimeClosed = false;
       let runtimeNotice: string | undefined;
-      try {
-        const { runtime, handle } = await this.ensureRuntimeHandle({
-          cfg: input.cfg,
-          sessionKey,
-          meta,
-        });
-        await withAcpRuntimeErrorBoundary({
-          run: async () =>
-            await runtime.close({
-              handle,
-              reason: input.reason,
-            }),
-          fallbackCode: "ACP_TURN_FAILED",
-          fallbackMessage: "ACP close failed before completion.",
-        });
-        runtimeClosed = true;
-        this.clearCachedRuntimeState(sessionKey);
-      } catch (error) {
-        const acpError = toAcpRuntimeError({
-          error,
-          fallbackCode: "ACP_TURN_FAILED",
-          fallbackMessage: "ACP close failed before completion.",
-        });
-        if (
-          input.allowBackendUnavailable &&
-          (acpError.code === "ACP_BACKEND_MISSING" ||
-            acpError.code === "ACP_BACKEND_UNAVAILABLE" ||
-            this.isRecoverableAcpxExitError(acpError.message))
-        ) {
-          // Treat unavailable backends as terminal for this cached handle so it
-          // cannot continue counting against maxConcurrentSessions.
-          this.clearCachedRuntimeState(sessionKey);
-          runtimeNotice = acpError.message;
-        } else {
-          throw acpError;
-        }
-      }
       let metaCleared = false;
 
       try {
