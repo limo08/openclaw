@@ -43,6 +43,40 @@ export type OpenShellSandboxBackend = SandboxBackendHandle &
     syncLocalPathToRemote(localPath: string, remotePath: string): Promise<void>;
   };
 
+/**
+ * Build a minimal environment object to pass to SSH subprocesses.
+ *
+ * Passing the full process.env to the SSH child process leaks every secret
+ * that OpenClaw carries in its environment — API keys, auth tokens, internal
+ * service credentials — into the remote sandbox (CWE-526).  An attacker who
+ * gains code execution inside the sandbox can read those values via
+ * /proc/self/environ or simply by printing them.
+ *
+ * Only variables that are genuinely required for the SSH session to function
+ * correctly are forwarded.  All other variables (including FIRECRAWL_API_KEY,
+ * ANTHROPIC_API_KEY, OPENAI_API_KEY, gateway secrets, etc.) are stripped.
+ */
+function buildSshSubprocessEnv(): NodeJS.ProcessEnv {
+  const SAFE_KEYS = new Set([
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "TERM",
+    "LANG",
+    "TZ",
+    "TMPDIR",
+    "SSH_AUTH_SOCK",
+    "SSH_AGENT_PID",
+  ]);
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => SAFE_KEYS.has(k) || k.startsWith("LC_"),
+    ),
+  );
+}
+
 export function createOpenShellSandboxBackendFactory(
   params: CreateOpenShellSandboxBackendFactoryParams,
 ): SandboxBackendFactory {
@@ -119,7 +153,7 @@ async function createOpenShellSandboxBackend(params: {
       const pending = await impl.prepareExec({ command, workdir, env, usePty });
       return {
         argv: pending.argv,
-        env: process.env,
+        env: buildSshSubprocessEnv(),
         stdinMode: "pipe-open",
         finalizeToken: pending.token,
       };
@@ -176,7 +210,7 @@ class OpenShellSandboxBackendImpl {
         const pending = await self.prepareExec({ command, workdir, env, usePty });
         return {
           argv: pending.argv,
-          env: process.env,
+          env: buildSshSubprocessEnv(),
           stdinMode: "pipe-open",
           finalizeToken: pending.token,
         };
