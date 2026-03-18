@@ -677,6 +677,14 @@ function restoreRedactedValuesWithLookup(
       }
     }
   }
+
+  // Preserve keys from original that are missing in incoming.
+  for (const key of Object.keys(orig)) {
+    if (!(key in (incoming as Record<string, unknown>))) {
+      result[key] = orig[key];
+    }
+  }
+
   return result;
 }
 
@@ -720,5 +728,13 @@ function restoreRedactedValuesGuessing(
       result[key] = value;
     }
   }
+
+  // Preserve keys from original that are missing in incoming.
+  for (const key of Object.keys(orig)) {
+    if (!(key in (incoming as Record<string, unknown>))) {
+      result[key] = orig[key];
+    }
+  }
+
   return result;
 }
