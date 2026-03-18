@@ -613,15 +613,18 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   const existingProvider = providers[providerId];
   const existingModels = Array.isArray(existingProvider?.models) ? existingProvider.models : [];
   const hasModel = existingModels.some((model) => model.id === modelId);
+  const isLikelyReasoningModel = isAzure && /\b(o[134]|gpt-([5-9]|\d{2,}))\b/i.test(modelId);
   const nextModel = isAzure
     ? {
         id: modelId,
         name: `${modelId} (Custom Provider)`,
         contextWindow: DEFAULT_CONTEXT_WINDOW,
         maxTokens: DEFAULT_MAX_TOKENS,
-        input: ["text", "image"] as Array<"text" | "image">,
+        input: isLikelyReasoningModel
+          ? (["text", "image"] as Array<"text" | "image">)
+          : (["text"] as ["text"]),
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        reasoning: true,
+        reasoning: isLikelyReasoningModel,
         compat: { supportsStore: false },
       }
     : {
@@ -638,7 +641,11 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
         model.id === modelId
           ? {
               ...model,
+              ...(isAzure ? nextModel : {}),
+              name: model.name ?? nextModel.name,
+              cost: model.cost ?? nextModel.cost,
               contextWindow: normalizeContextWindowForCustomModel(model.contextWindow),
+              maxTokens: model.maxTokens ?? nextModel.maxTokens,
             }
           : model,
       )
@@ -651,12 +658,7 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   const providerApi = isAzure
     ? ("openai-responses" as const)
     : resolveProviderApi(params.compatibility);
-  const azureHeaders =
-    isAzure && normalizedApiKey && typeof normalizedApiKey === "string"
-      ? { "api-key": normalizedApiKey }
-      : isAzure && normalizedApiKey
-        ? { "api-key": normalizedApiKey }
-        : undefined;
+  const azureHeaders = isAzure && normalizedApiKey ? { "api-key": normalizedApiKey } : undefined;
 
   let config: OpenClawConfig = {
     ...params.config,
@@ -679,17 +681,29 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   };
 
   config = applyPrimaryModel(config, modelRef);
-  if (isAzure) {
-    config = {
-      ...config,
-      agents: {
-        ...config.agents,
-        defaults: {
-          ...config.agents?.defaults,
-          thinkingDefault: config.agents?.defaults?.thinkingDefault ?? "medium",
+  if (isAzure && isLikelyReasoningModel) {
+    const existingPerModelThinking = config.agents?.defaults?.models?.[modelRef]?.params?.thinking;
+    if (!existingPerModelThinking) {
+      config = {
+        ...config,
+        agents: {
+          ...config.agents,
+          defaults: {
+            ...config.agents?.defaults,
+            models: {
+              ...config.agents?.defaults?.models,
+              [modelRef]: {
+                ...config.agents?.defaults?.models?.[modelRef],
+                params: {
+                  ...config.agents?.defaults?.models?.[modelRef]?.params,
+                  thinking: "medium",
+                },
+              },
+            },
+          },
         },
-      },
-    };
+      };
+    }
   }
   if (alias) {
     config = {
