@@ -139,6 +139,22 @@ describe("setupWizardCommand", () => {
     expect(mocks.handleReset).toHaveBeenCalledWith("full", expect.any(String), runtime);
   });
 
+  it("preserves Anthropic OAuth authChoice instead of normalizing it to setup-token", async () => {
+    const runtime = makeRuntime();
+
+    await setupWizardCommand(
+      {
+        authChoice: "oauth",
+      },
+      runtime,
+    );
+
+    expect(mocks.runInteractiveSetup).toHaveBeenCalledWith(
+      expect.objectContaining({ authChoice: "oauth" }),
+      runtime,
+    );
+  });
+
   it("fails fast for invalid --reset-scope", async () => {
     const runtime = makeRuntime();
 

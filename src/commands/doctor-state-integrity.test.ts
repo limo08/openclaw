@@ -3,7 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
-import { resolveStorePath, resolveSessionTranscriptsDirForAgent } from "../config/sessions.js";
+import {
+  resolveStorePath,
+  resolveSessionTranscriptsDirForAgent,
+  clearSessionStoreCacheForTest,
+} from "../config/sessions.js";
 import { note } from "../terminal/note.js";
 import { noteStateIntegrity } from "./doctor-state-integrity.js";
 
@@ -159,6 +163,90 @@ describe("doctor state integrity oauth dir checks", () => {
     );
     const files = fs.readdirSync(sessionsDir);
     expect(files.some((name) => name.startsWith("orphan-session.jsonl.deleted."))).toBe(true);
+  });
+
+  it("does not mark cron run sessions with stale sessionFile as orphans", async () => {
+    clearSessionStoreCacheForTest();
+    const sessionsDir = path.join(tempHome, ".openclaw", "agents", "main", "sessions");
+    const storePath = path.join(sessionsDir, "sessions.json");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sessions = {
+      "agent:main:cron:reply-bot:run:run-123": {
+        sessionId: "run-123",
+        sessionFile: "old-session.jsonl",
+        updatedAt: Date.now(),
+      } as { sessionId: string; sessionFile?: string; updatedAt: number },
+    };
+    fs.writeFileSync(storePath, JSON.stringify(sessions, null, 2));
+    fs.writeFileSync(path.join(sessionsDir, "run-123.jsonl"), '{"type":"message"}\n');
+    const filesBefore = fs.readdirSync(sessionsDir);
+    const cfg: OpenClawConfig = {};
+    const confirmSkipInNonInteractive = vi.fn(async () => false);
+    await noteStateIntegrity(cfg, { confirmSkipInNonInteractive });
+    const filesAfter = fs.readdirSync(sessionsDir);
+    expect(filesBefore.toSorted()).toEqual(filesAfter.toSorted());
+  });
+
+  it("uses persisted sessionFile paths for transcript integrity checks", async () => {
+    clearSessionStoreCacheForTest();
+    const sessionsDir = path.join(tempHome, ".openclaw", "agents", "main", "sessions");
+    const storePath = path.join(sessionsDir, "sessions.json");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const sessionFile = "topic-session-topic-thread-42.jsonl";
+    const sessions = {
+      "agent:main:main": {
+        sessionId: "topic-session",
+        sessionFile,
+        updatedAt: Date.now(),
+      } as { sessionId: string; sessionFile?: string; updatedAt: number },
+    };
+    fs.writeFileSync(storePath, JSON.stringify(sessions, null, 2));
+    fs.writeFileSync(path.join(sessionsDir, sessionFile), '{"type":"message"}\n');
+    const confirmSkipInNonInteractive = vi.fn(async () => false);
+
+    await noteStateIntegrity({}, { confirmSkipInNonInteractive });
+
+    const text = stateIntegrityText();
+    expect(text).not.toContain("missing transcripts");
+    expect(text).not.toContain("Main session transcript missing");
+    expect(text).not.toContain("orphan transcript file");
+    expect(confirmSkipInNonInteractive).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("orphan transcript file"),
+      }),
+    );
+  });
+
+  it("resolves transcripts relative to a configured custom session store", async () => {
+    clearSessionStoreCacheForTest();
+    const customSessionsDir = path.join(tempHome, "custom-session-store");
+    const storePath = path.join(customSessionsDir, "sessions.json");
+    fs.mkdirSync(customSessionsDir, { recursive: true });
+    const sessions = {
+      "agent:main:main": {
+        sessionId: "custom-store-session",
+        updatedAt: Date.now(),
+      } as { sessionId: string; updatedAt: number },
+    };
+    fs.writeFileSync(storePath, JSON.stringify(sessions, null, 2));
+    fs.writeFileSync(
+      path.join(customSessionsDir, "custom-store-session.jsonl"),
+      '{"type":"message"}\n',
+    );
+
+    const confirmSkipInNonInteractive = vi.fn(async () => false);
+    await noteStateIntegrity(
+      {
+        session: {
+          store: storePath,
+        },
+      },
+      { confirmSkipInNonInteractive },
+    );
+
+    const text = stateIntegrityText();
+    expect(text).not.toContain("missing transcripts");
+    expect(text).not.toContain("Main session transcript missing");
   });
 
   it("prints openclaw-only verification hints when recent sessions are missing transcripts", async () => {

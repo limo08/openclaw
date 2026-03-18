@@ -1,6 +1,8 @@
 import { formatCliCommand } from "openclaw/plugin-sdk/cli-runtime";
 import { parseDurationMs } from "openclaw/plugin-sdk/cli-runtime";
 import {
+  emptyPluginConfigSchema,
+  type OpenClawPluginApi,
   definePluginEntry,
   type ProviderAuthContext,
   type ProviderResolveDynamicModelContext,
@@ -8,10 +10,6 @@ import {
 } from "openclaw/plugin-sdk/core";
 import {
   CLAUDE_CLI_PROFILE_ID,
-  applyAuthProfileConfig,
-  buildTokenProfileId,
-  createProviderApiKeyAuthMethod,
-  ensureApiKeyFromOptionEnvOrPrompt,
   listProfilesForProvider,
   normalizeApiKeyInput,
   suggestOAuthProfileIdForLegacyDefault,
@@ -27,6 +25,8 @@ import {
 } from "openclaw/plugin-sdk/provider-auth";
 import { normalizeModelCompat } from "openclaw/plugin-sdk/provider-models";
 import { fetchClaudeUsage } from "openclaw/plugin-sdk/provider-usage";
+import { loginAnthropicOAuth } from "../../src/commands/anthropic-oauth.js";
+import { buildOauthProviderAuthResult } from "../../src/plugin-sdk/provider-auth-result.js";
 import { anthropicMediaUnderstandingProvider } from "./media-understanding-provider.js";
 
 const PROVIDER_ID = "anthropic";
@@ -311,11 +311,39 @@ async function runAnthropicSetupTokenNonInteractive(ctx: {
   });
 }
 
+async function runAnthropicOAuth(ctx: ProviderAuthContext): Promise<ProviderAuthResult> {
+  let creds;
+  try {
+    creds = await loginAnthropicOAuth({
+      prompter: ctx.prompter,
+      runtime: ctx.runtime,
+      isRemote: ctx.isRemote,
+      openUrl: ctx.openUrl,
+      localBrowserMessage: "Complete sign-in in browser…",
+    });
+  } catch {
+    return { profiles: [] };
+  }
+  if (!creds) {
+    return { profiles: [] };
+  }
+
+  return buildOauthProviderAuthResult({
+    providerId: PROVIDER_ID,
+    defaultModel: DEFAULT_ANTHROPIC_MODEL,
+    access: creds.access,
+    refresh: creds.refresh,
+    expires: creds.expires,
+    email: typeof creds.email === "string" ? creds.email : undefined,
+  });
+}
+
 export default definePluginEntry({
   id: PROVIDER_ID,
   name: "Anthropic Provider",
   description: "Bundled Anthropic provider plugin",
-  register(api) {
+  configSchema: emptyPluginConfigSchema(),
+  register(api: OpenClawPluginApi) {
     api.registerProvider({
       id: PROVIDER_ID,
       label: "Anthropic",
@@ -323,6 +351,26 @@ export default definePluginEntry({
       envVars: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
       deprecatedProfileIds: [CLAUDE_CLI_PROFILE_ID],
       auth: [
+        {
+          id: "oauth",
+          label: "Anthropic OAuth (Claude Pro/Max)",
+          hint: "Browser sign-in",
+          kind: "oauth",
+          wizard: {
+            choiceId: "oauth",
+            choiceLabel: "Anthropic OAuth (Claude Pro/Max)",
+            choiceHint: "Browser sign-in",
+            groupId: "anthropic",
+            groupLabel: "Anthropic",
+            groupHint: "OAuth + setup-token + API key",
+            modelAllowlist: {
+              allowedKeys: [...ANTHROPIC_OAUTH_ALLOWLIST],
+              initialSelections: ["anthropic/claude-sonnet-4-6"],
+              message: "Anthropic OAuth models",
+            },
+          },
+          run: async (ctx: ProviderAuthContext) => await runAnthropicOAuth(ctx),
+        },
         {
           id: "setup-token",
           label: "setup-token (claude)",
@@ -334,7 +382,7 @@ export default definePluginEntry({
             choiceHint: "Run `claude setup-token` elsewhere, then paste the token here",
             groupId: "anthropic",
             groupLabel: "Anthropic",
-            groupHint: "setup-token + API key",
+            groupHint: "OAuth + setup-token + API key",
             modelAllowlist: {
               allowedKeys: [...ANTHROPIC_OAUTH_ALLOWLIST],
               initialSelections: ["anthropic/claude-sonnet-4-6"],
@@ -366,7 +414,7 @@ export default definePluginEntry({
             choiceLabel: "Anthropic API key",
             groupId: "anthropic",
             groupLabel: "Anthropic",
-            groupHint: "setup-token + API key",
+            groupHint: "OAuth + setup-token + API key",
           },
         }),
       ],

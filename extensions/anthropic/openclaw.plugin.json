@@ -7,13 +7,23 @@
   "providerAuthChoices": [
     {
       "provider": "anthropic",
+      "method": "oauth",
+      "choiceId": "oauth",
+      "choiceLabel": "Anthropic OAuth (Claude Pro/Max)",
+      "choiceHint": "Browser sign-in",
+      "groupId": "anthropic",
+      "groupLabel": "Anthropic",
+      "groupHint": "OAuth + setup-token + API key"
+    },
+    {
+      "provider": "anthropic",
       "method": "setup-token",
       "choiceId": "token",
       "choiceLabel": "Anthropic token (paste setup-token)",
       "choiceHint": "Run `claude setup-token` elsewhere, then paste the token here",
       "groupId": "anthropic",
       "groupLabel": "Anthropic",
-      "groupHint": "setup-token + API key"
+      "groupHint": "OAuth + setup-token + API key"
     },
     {
       "provider": "anthropic",
@@ -22,7 +32,7 @@
       "choiceLabel": "Anthropic API key",
       "groupId": "anthropic",
       "groupLabel": "Anthropic",
-      "groupHint": "setup-token + API key",
+      "groupHint": "OAuth + setup-token + API key",
       "optionKey": "anthropicApiKey",
       "cliFlag": "--anthropic-api-key",
       "cliOption": "--anthropic-api-key <key>",

@@ -61,6 +61,13 @@ vi.mock("./openai-codex-oauth.js", () => ({
   loginOpenAICodexOAuth,
 }));
 
+const loginAnthropicOAuth = vi.hoisted(() =>
+  vi.fn<() => Promise<OAuthCredentials | null>>(async () => null),
+);
+vi.mock("./anthropic-oauth.js", () => ({
+  loginAnthropicOAuth,
+}));
+
 const resolvePluginProviders = vi.hoisted(() => vi.fn<() => ProviderPlugin[]>(() => []));
 vi.mock("../plugins/providers.js", () => ({
   resolvePluginProviders,
@@ -188,6 +195,8 @@ describe("applyAuthChoice", () => {
     setDetectZaiEndpointForTesting(detectZaiEndpoint);
     loginOpenAICodexOAuth.mockReset();
     loginOpenAICodexOAuth.mockResolvedValue(null);
+    loginAnthropicOAuth.mockReset();
+    loginAnthropicOAuth.mockResolvedValue(null);
     await lifecycle.cleanup();
     activeStateDir = null;
   });
@@ -299,6 +308,60 @@ describe("applyAuthChoice", () => {
     expect(await readAuthProfile("openai-codex:user@example.com")).toMatchObject({
       type: "oauth",
       provider: "openai-codex",
+      refresh: "refresh-token",
+      access: "access-token",
+      email: "user@example.com",
+    });
+  });
+
+  it("does not throw when Anthropic OAuth fails", async () => {
+    await setupTempState();
+
+    loginAnthropicOAuth.mockRejectedValueOnce(new Error("oauth failed"));
+
+    const prompter = createPrompter({});
+    const runtime = createExitThrowingRuntime();
+
+    await expect(
+      applyAuthChoice({
+        authChoice: "oauth",
+        config: {},
+        prompter,
+        runtime,
+        setDefaultModel: false,
+      }),
+    ).resolves.toEqual({ config: {} });
+  });
+
+  it("stores Anthropic OAuth with email profile id", async () => {
+    await setupTempState();
+
+    loginAnthropicOAuth.mockResolvedValueOnce({
+      email: "user@example.com",
+      refresh: "refresh-token",
+      access: "access-token",
+      expires: Date.now() + 60_000,
+    });
+
+    const prompter = createPrompter({});
+    const runtime = createExitThrowingRuntime();
+
+    const result = await applyAuthChoice({
+      authChoice: "oauth",
+      config: {},
+      prompter,
+      runtime,
+      setDefaultModel: false,
+    });
+
+    expect(result.config.auth?.profiles?.["anthropic:user@example.com"]).toMatchObject({
+      provider: "anthropic",
+      mode: "oauth",
+    });
+    expect(result.config.auth?.profiles?.["anthropic:default"]).toBeUndefined();
+    expect(await readAuthProfile("anthropic:user@example.com")).toMatchObject({
+      type: "oauth",
+      provider: "anthropic",
       refresh: "refresh-token",
       access: "access-token",
       email: "user@example.com",

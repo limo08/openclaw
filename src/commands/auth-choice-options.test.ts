@@ -51,6 +51,16 @@ describe("buildAuthChoiceOptions", () => {
       {
         pluginId: "anthropic",
         providerId: "anthropic",
+        methodId: "oauth",
+        choiceId: "oauth",
+        choiceLabel: "Anthropic OAuth (Claude Pro/Max)",
+        choiceHint: "Browser sign-in",
+        groupId: "anthropic",
+        groupLabel: "Anthropic",
+      },
+      {
+        pluginId: "anthropic",
+        providerId: "anthropic",
         methodId: "setup-token",
         choiceId: "token",
         choiceLabel: "Anthropic token (paste setup-token)",
@@ -193,6 +203,7 @@ describe("buildAuthChoiceOptions", () => {
 
     for (const value of [
       "github-copilot",
+      "oauth",
       "token",
       "zai-api-key",
       "xiaomi-api-key",
@@ -255,7 +266,6 @@ describe("buildAuthChoiceOptions", () => {
     }).split("|");
 
     expect(cliChoices).toContain("setup-token");
-    expect(cliChoices).toContain("oauth");
     expect(cliChoices).toContain("claude-cli");
     expect(cliChoices).toContain("codex-cli");
   });
@@ -300,6 +310,39 @@ describe("buildAuthChoiceOptions", () => {
 
     expect(chutesGroup).toBeDefined();
     expect(chutesGroup?.options.some((opt) => opt.value === "chutes")).toBe(true);
+  });
+
+  it("shows Anthropic OAuth in grouped provider selection", () => {
+    resolveManifestProviderAuthChoices.mockReturnValue([
+      {
+        pluginId: "anthropic",
+        providerId: "anthropic",
+        methodId: "oauth",
+        choiceId: "oauth",
+        choiceLabel: "Anthropic OAuth (Claude Pro/Max)",
+        choiceHint: "Browser sign-in",
+        groupId: "anthropic",
+        groupLabel: "Anthropic",
+      },
+      {
+        pluginId: "anthropic",
+        providerId: "anthropic",
+        methodId: "setup-token",
+        choiceId: "token",
+        choiceLabel: "Anthropic token (paste setup-token)",
+        groupId: "anthropic",
+        groupLabel: "Anthropic",
+      },
+    ]);
+    const { groups } = buildAuthChoiceGroups({
+      store: EMPTY_STORE,
+      includeSkip: false,
+    });
+    const anthropicGroup = groups.find((group) => group.value === "anthropic");
+
+    expect(anthropicGroup).toBeDefined();
+    expect(anthropicGroup?.options.some((opt) => opt.value === "oauth")).toBe(true);
+    expect(anthropicGroup?.options.some((opt) => opt.value === "token")).toBe(true);
   });
 
   it("groups OpenCode Zen and Go under one OpenCode entry", () => {
