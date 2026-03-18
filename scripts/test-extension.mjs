@@ -191,6 +191,10 @@ function hasVitestPoolArg(args) {
   return args.some((arg) => arg === "--pool" || arg.startsWith("--pool="));
 }
 
+function hasVitestMaxWorkersArg(args) {
+  return args.some((arg) => arg === "--maxWorkers" || arg.startsWith("--maxWorkers="));
+}
+
 async function run() {
   const rawArgs = process.argv.slice(2);
   const dryRun = rawArgs.includes("--dry-run");
@@ -299,6 +303,7 @@ async function run() {
   );
 
   const poolArgs = hasVitestPoolArg(passthroughArgs) ? [] : ["--pool=forks"];
+  const maxWorkersArgs = hasVitestMaxWorkersArg(passthroughArgs) ? [] : ["--maxWorkers", "1"];
   const child = spawn(
     pnpm,
     [
@@ -308,6 +313,7 @@ async function run() {
       "--config",
       plan.config,
       ...poolArgs,
+      ...maxWorkersArgs,
       ...plan.testFiles,
       ...passthroughArgs,
     ],
