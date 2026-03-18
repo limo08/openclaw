@@ -962,15 +962,15 @@ describe("slack slash commands access groups", () => {
 });
 
 describe("slack slash command session metadata", () => {
-  const { recordInboundSessionMetaSafeMock } = getSlackSlashMocks();
+  const { recordSessionMetaFromInboundMock } = getSlackSlashMocks();
 
-  it("calls recordInboundSessionMetaSafe after dispatching a slash command", async () => {
+  it("calls recordSessionMetaFromInbound after dispatching a slash command", async () => {
     const harness = createPolicyHarness({ groupPolicy: "open" });
     await registerAndRunPolicySlash({ harness });
 
     expect(dispatchMock).toHaveBeenCalledTimes(1);
-    expect(recordInboundSessionMetaSafeMock).toHaveBeenCalledTimes(1);
-    const call = recordInboundSessionMetaSafeMock.mock.calls[0]?.[0] as {
+    expect(recordSessionMetaFromInboundMock).toHaveBeenCalledTimes(1);
+    const call = recordSessionMetaFromInboundMock.mock.calls[0]?.[0] as {
       sessionKey?: string;
       ctx?: { OriginatingChannel?: string };
     };
@@ -980,7 +980,7 @@ describe("slack slash command session metadata", () => {
 
   it("awaits session metadata persistence before dispatch", async () => {
     const deferred = createDeferred<void>();
-    recordInboundSessionMetaSafeMock.mockClear().mockReturnValue(deferred.promise);
+    recordSessionMetaFromInboundMock.mockClear().mockReturnValue(deferred.promise);
 
     const harness = createPolicyHarness({ groupPolicy: "open" });
     await registerCommands(harness.ctx, harness.account);
@@ -994,7 +994,7 @@ describe("slack slash command session metadata", () => {
     });
 
     await vi.waitFor(() => {
-      expect(recordInboundSessionMetaSafeMock).toHaveBeenCalledTimes(1);
+      expect(recordSessionMetaFromInboundMock).toHaveBeenCalledTimes(1);
     });
     expect(dispatchMock).not.toHaveBeenCalled();
 
