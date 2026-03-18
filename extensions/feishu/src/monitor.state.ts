@@ -132,13 +132,15 @@ export function recordWebhookStatus(
   });
 }
 
-export function stopFeishuMonitorState(accountId?: string): void {
+export async function stopFeishuMonitorState(accountId?: string): Promise<void> {
   if (accountId) {
     wsClients.delete(accountId);
     const server = httpServers.get(accountId);
     if (server) {
-      server.close();
       httpServers.delete(accountId);
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      });
     }
     botOpenIds.delete(accountId);
     botNames.delete(accountId);
@@ -146,10 +148,16 @@ export function stopFeishuMonitorState(accountId?: string): void {
   }
 
   wsClients.clear();
+  const closePromises: Promise<void>[] = [];
   for (const server of httpServers.values()) {
-    server.close();
+    closePromises.push(
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+      }),
+    );
   }
   httpServers.clear();
+  await Promise.all(closePromises);
   botOpenIds.clear();
   botNames.clear();
 }

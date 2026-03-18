@@ -35,9 +35,9 @@ import {
   stopFeishuMonitor,
 } from "./monitor.js";
 
-afterEach(() => {
+afterEach(async () => {
   clearFeishuWebhookRateLimitStateForTest();
-  stopFeishuMonitor();
+  await stopFeishuMonitor();
 });
 
 describe("Feishu webhook security hardening", () => {

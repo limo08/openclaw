@@ -58,8 +58,8 @@ async function postSignedPayload(url: string, payload: Record<string, unknown>) 
   });
 }
 
-afterEach(() => {
-  stopFeishuMonitor();
+afterEach(async () => {
+  await stopFeishuMonitor();
 });
 
 describe("Feishu webhook signed-request e2e", () => {
