@@ -221,7 +221,6 @@ export const buildTelegramMessageContext = async ({
     return false;
   };
 
-<<<<<<< HEAD
   const baseSessionKey = resolveTelegramConversationBaseSessionKey({
     cfg: freshCfg,
     route,
@@ -229,9 +228,6 @@ export const buildTelegramMessageContext = async ({
     isGroup,
     senderId,
   });
-=======
-  const baseSessionKey = route.sessionKey;
->>>>>>> df476c495a (fix: ci prune stray branch files and restore telegram bindings)
   // DMs: use thread suffix for session isolation (works regardless of dmScope)
   const threadKeys =
     dmThreadId != null
