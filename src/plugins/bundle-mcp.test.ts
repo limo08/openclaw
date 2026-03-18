@@ -152,6 +152,11 @@ describe("loadEnabledBundleMcpConfig", () => {
 
       const pluginRoot = path.join(homeDir, ".openclaw", "extensions", "inline-claude");
       await fs.mkdir(path.join(pluginRoot, ".claude-plugin"), { recursive: true });
+      await fs.mkdir(path.join(pluginRoot, "bin"), { recursive: true });
+      await fs.mkdir(path.join(pluginRoot, "servers"), { recursive: true });
+      await fs.writeFile(path.join(pluginRoot, "bin", "server.sh"), "#!/bin/sh\n", "utf-8");
+      await fs.writeFile(path.join(pluginRoot, "servers", "probe.mjs"), "export {};\n", "utf-8");
+      await fs.writeFile(path.join(pluginRoot, "local-probe.mjs"), "export {};\n", "utf-8");
       await fs.writeFile(
         path.join(pluginRoot, ".claude-plugin", "plugin.json"),
         `${JSON.stringify(
@@ -194,14 +199,18 @@ describe("loadEnabledBundleMcpConfig", () => {
         env?: Record<string, string>;
       };
       expect(normalizePath(inlineProbe.command)).toBe(
-        normalizePath(path.join(resolvedPluginRoot, "bin", "server.sh")),
+        normalizePath(await fs.realpath(path.join(resolvedPluginRoot, "bin", "server.sh"))),
       );
-      expect(inlineProbe.args?.map(normalizePath)).toEqual([
-        normalizePath(path.join(resolvedPluginRoot, "servers", "probe.mjs")),
-        normalizePath(path.join(resolvedPluginRoot, "local-probe.mjs")),
+      expect(await Promise.all(inlineProbe.args?.map((entry) => fs.realpath(entry)) ?? [])).toEqual([
+        await fs.realpath(path.join(resolvedPluginRoot, "servers", "probe.mjs")),
+        await fs.realpath(path.join(resolvedPluginRoot, "local-probe.mjs")),
       ]);
-      expect(normalizePath(inlineProbe.cwd)).toBe(normalizePath(resolvedPluginRoot));
-      expect(normalizePath(inlineProbe.env?.PLUGIN_ROOT)).toBe(normalizePath(resolvedPluginRoot));
+      expect(normalizePath(await fs.realpath(inlineProbe.cwd ?? ""))).toBe(
+        normalizePath(resolvedPluginRoot),
+      );
+      expect(normalizePath(await fs.realpath(inlineProbe.env?.PLUGIN_ROOT ?? ""))).toBe(
+        normalizePath(resolvedPluginRoot),
+      );
     } finally {
       env.restore();
     }

@@ -108,7 +108,10 @@ describe("bundle plugin hooks", () => {
     expect(entries[0]?.hook.pluginId).toBe("sample-bundle");
 
     const normalizePath = (p: string | undefined) => p?.replace(/\\/g, "/").toLowerCase();
-    expect(normalizePath(entries[0]?.hook.baseDir)).toBe(
+    const resolvedBaseDir = entries[0]?.hook.baseDir
+      ? fs.realpathSync.native(entries[0].hook.baseDir)
+      : undefined;
+    expect(normalizePath(resolvedBaseDir)).toBe(
       normalizePath(fs.realpathSync.native(path.join(bundleRoot, "hooks", "bundle-hook"))),
     );
     expect(entries[0]?.metadata?.events).toEqual(["command:new"]);
