@@ -1,7 +1,7 @@
 import { CONTEXT_WINDOW_HARD_MIN_TOKENS } from "../agents/context-window-guard.js";
 import { DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { buildModelAliasIndex, modelKey } from "../agents/model-selection.js";
-import { OLLAMA_DEFAULT_BASE_URL } from "../agents/ollama-models.js";
+import { OLLAMA_DEFAULT_BASE_URL } from "../agents/ollama-defaults.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ModelProviderConfig } from "../config/types.models.js";
 import { isSecretRef, type SecretInput } from "../config/types.secrets.js";
@@ -77,6 +77,14 @@ function transformAzureConfigUrl(baseUrl: string): string {
   const deploymentIdx = normalizedUrl.indexOf("/openai/deployments/");
   const base = deploymentIdx !== -1 ? normalizedUrl.slice(0, deploymentIdx) : normalizedUrl;
   return `${base}/openai/v1`;
+}
+
+function hasSameHost(a: string, b: string): boolean {
+  try {
+    return new URL(a).hostname.toLowerCase() === new URL(b).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 export type CustomApiCompatibility = "openai" | "anthropic";
@@ -192,7 +200,11 @@ function resolveUniqueEndpointId(params: {
 }) {
   const normalized = normalizeEndpointId(params.requestedId) || "custom";
   const existing = params.providers[normalized];
-  if (!existing?.baseUrl || existing.baseUrl === params.baseUrl) {
+  if (
+    !existing?.baseUrl ||
+    existing.baseUrl === params.baseUrl ||
+    (isAzureUrl(params.baseUrl) && hasSameHost(existing.baseUrl, params.baseUrl))
+  ) {
     return { providerId: normalized, renamed: false };
   }
   let suffix = 2;
@@ -643,7 +655,6 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
     ? existingModels.map((model) =>
         model.id === modelId
           ? {
-              ...nextModel,
               ...model,
               ...(isAzure ? nextModel : {}),
               name: model.name ?? nextModel.name,
