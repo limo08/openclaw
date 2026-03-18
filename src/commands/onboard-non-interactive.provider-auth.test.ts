@@ -931,6 +931,7 @@ describe("onboard (non-interactive): provider auth", () => {
 
         const store = ensureAuthProfileStore();
         const profile = store.profiles["github-copilot:github"];
+        expect(profile?.type).toBe("token");
         if (profile?.type === "token") {
           expect(profile.token).toBe("ghu_from_env");
         }
@@ -966,6 +967,7 @@ describe("onboard (non-interactive): provider auth", () => {
 
       const store = ensureAuthProfileStore();
       const profile = store.profiles["github-copilot:github"];
+      expect(profile?.type).toBe("token");
       if (profile?.type === "token") {
         expect(profile.token).toBe("ghu_test123");
       }

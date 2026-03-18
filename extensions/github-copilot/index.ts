@@ -128,14 +128,22 @@ async function runGitHubCopilotNonInteractiveAuth(
     mode: "token",
   });
 
-  // Set default model to match interactive flow.
+  // Set default model to match interactive flow, preserving any existing fallbacks.
+  const existingModel = next.agents?.defaults?.model;
+  const fallbacks =
+    typeof existingModel === "object" && existingModel !== null && "fallbacks" in existingModel
+      ? (existingModel as { fallbacks?: string[] }).fallbacks
+      : undefined;
   next = {
     ...next,
     agents: {
       ...next.agents,
       defaults: {
         ...next.agents?.defaults,
-        model: { primary: DEFAULT_COPILOT_MODEL },
+        model: {
+          ...(fallbacks ? { fallbacks } : undefined),
+          primary: DEFAULT_COPILOT_MODEL,
+        },
         models: {
           ...next.agents?.defaults?.models,
           [DEFAULT_COPILOT_MODEL]: next.agents?.defaults?.models?.[DEFAULT_COPILOT_MODEL] ?? {},
