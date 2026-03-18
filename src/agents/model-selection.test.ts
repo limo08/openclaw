@@ -341,6 +341,67 @@ describe("model-selection", () => {
         }),
       ).toBe("vercel-ai-gateway");
     });
+
+    it("returns undefined when prefixed and unprefixed allowlist entries are ambiguous", () => {
+      const cfg = {
+        agents: {
+          defaults: {
+            models: {
+              "claude-sonnet-4-6": {},
+              "anthropic/claude-sonnet-4-6": {},
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      expect(
+        inferUniqueProviderFromConfiguredModels({
+          cfg,
+          model: "claude-sonnet-4-6",
+          defaultProvider: "openai",
+        }),
+      ).toBeUndefined();
+    });
+
+    it("treats normalized bare allowlist entries as ambiguous matches", () => {
+      const cfg = {
+        agents: {
+          defaults: {
+            models: {
+              "sonnet-4.6": {},
+              "minimax/claude-sonnet-4-6": {},
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      expect(
+        inferUniqueProviderFromConfiguredModels({
+          cfg,
+          model: "claude-sonnet-4-6",
+          defaultProvider: "anthropic",
+        }),
+      ).toBeUndefined();
+    });
+
+    it("does not infer provider from bare allowlist entries when caller default is missing", () => {
+      const cfg = {
+        agents: {
+          defaults: {
+            models: {
+              "gpt-4o": {},
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      expect(
+        inferUniqueProviderFromConfiguredModels({
+          cfg,
+          model: "gpt-4o",
+        }),
+      ).toBeUndefined();
+    });
   });
 
   describe("buildModelAliasIndex", () => {
@@ -475,6 +536,56 @@ describe("model-selection", () => {
       expect(result).toEqual({
         key: "openai/@cf/openai/gpt-oss-20b",
         ref: { provider: "openai", model: "@cf/openai/gpt-oss-20b" },
+      });
+    });
+
+    it("infers provider for bare model names when allowlist has a unique match", () => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            models: {
+              "ollama/deepseek-r1:7b": {},
+              "anthropic/claude-opus-4-6": {},
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      const result = resolveAllowedModelRef({
+        cfg,
+        catalog: [],
+        raw: "claude-opus-4-6",
+        defaultProvider: "ollama",
+      });
+
+      expect(result).toEqual({
+        key: "anthropic/claude-opus-4-6",
+        ref: { provider: "anthropic", model: "claude-opus-4-6" },
+      });
+    });
+
+    it("infers provider for bare model names with trailing auth profile suffix", () => {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: {
+            models: {
+              "ollama/deepseek-r1:7b": {},
+              "anthropic/claude-opus-4-6": {},
+            },
+          },
+        },
+      } as OpenClawConfig;
+
+      const result = resolveAllowedModelRef({
+        cfg,
+        catalog: [],
+        raw: "claude-opus-4-6@myprofile",
+        defaultProvider: "ollama",
+      });
+
+      expect(result).toEqual({
+        key: "anthropic/claude-opus-4-6",
+        ref: { provider: "anthropic", model: "claude-opus-4-6" },
       });
     });
   });

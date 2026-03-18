@@ -157,8 +157,10 @@ export function parseModelRef(raw: string, defaultProvider: string): ModelRef | 
 export function inferUniqueProviderFromConfiguredModels(params: {
   cfg: OpenClawConfig;
   model: string;
+  defaultProvider?: string;
 }): string | undefined {
-  const model = params.model.trim();
+  const { model: rawModel } = splitTrailingAuthProfile(params.model);
+  const model = rawModel.trim();
   if (!model) {
     return undefined;
   }
@@ -167,17 +169,41 @@ export function inferUniqueProviderFromConfiguredModels(params: {
     return undefined;
   }
   const normalized = model.toLowerCase();
+  const inferenceDefaultProviderRaw = params.defaultProvider?.trim();
+  const inferenceDefaultProvider = inferenceDefaultProviderRaw
+    ? normalizeProviderId(inferenceDefaultProviderRaw)
+    : undefined;
+  const canonicalWithDefault = inferenceDefaultProvider
+    ? parseModelRef(model, inferenceDefaultProvider)?.model.toLowerCase()
+    : undefined;
+  const matchesModel = (candidateModel: string): boolean => {
+    const candidate = candidateModel.toLowerCase();
+    return (
+      candidate === normalized ||
+      (canonicalWithDefault !== undefined && candidate === canonicalWithDefault)
+    );
+  };
   const providers = new Set<string>();
   for (const key of Object.keys(configuredModels)) {
     const ref = key.trim();
-    if (!ref || !ref.includes("/")) {
+    if (!ref) {
+      continue;
+    }
+    if (!ref.includes("/")) {
+      if (!inferenceDefaultProvider) {
+        continue;
+      }
+      const parsedBare = parseModelRef(ref, inferenceDefaultProvider);
+      if (parsedBare && matchesModel(parsedBare.model)) {
+        providers.add(parsedBare.provider);
+        if (providers.size > 1) {
+          return undefined;
+        }
+      }
       continue;
     }
     const parsed = parseModelRef(ref, DEFAULT_PROVIDER);
-    if (!parsed) {
-      continue;
-    }
-    if (parsed.model === model || parsed.model.toLowerCase() === normalized) {
+    if (parsed && matchesModel(parsed.model)) {
       providers.add(parsed.provider);
       if (providers.size > 1) {
         return undefined;
@@ -549,13 +575,23 @@ export function resolveAllowedModelRef(params: {
     return { error: "invalid model: empty" };
   }
 
+  const { model: modelForInference } = splitTrailingAuthProfile(trimmed);
+  const resolvedDefaultProvider =
+    modelForInference && !modelForInference.includes("/")
+      ? (inferUniqueProviderFromConfiguredModels({
+          cfg: params.cfg,
+          model: modelForInference,
+          defaultProvider: params.defaultProvider,
+        }) ?? params.defaultProvider)
+      : params.defaultProvider;
+
   const aliasIndex = buildModelAliasIndex({
     cfg: params.cfg,
     defaultProvider: params.defaultProvider,
   });
   const resolved = resolveModelRefFromString({
     raw: trimmed,
-    defaultProvider: params.defaultProvider,
+    defaultProvider: resolvedDefaultProvider,
     aliasIndex,
   });
   if (!resolved) {
