@@ -536,6 +536,7 @@ export const handleSessionCommand: CommandHandler = async (params, allowTextComm
     }
 
     const allItems = buildSwitchableSessionList(params.sessionEntry);
+    let ambiguousPrefixMatches: Array<(typeof allItems)[number]> = [];
     const target = (() => {
       if (action === "back") {
         return allItems[1];
@@ -552,17 +553,24 @@ export const handleSessionCommand: CommandHandler = async (params, allowTextComm
       const prefixMatches = allItems.filter((item) =>
         item.sessionId.toLowerCase().startsWith(needle),
       );
+      if (prefixMatches.length > 1) {
+        ambiguousPrefixMatches = prefixMatches;
+        return undefined;
+      }
       return prefixMatches.length === 1 ? prefixMatches[0] : undefined;
     })();
 
     if (!target) {
+      const rawTarget = tokens[0] ?? action;
       return {
         shouldContinue: false,
         reply: {
           text:
             action === "back"
               ? "ℹ️ There is no previous session to switch back to."
-              : `⚠️ Session not found: ${tokens[0]}. Use /sessions to list available sessions.`,
+              : ambiguousPrefixMatches.length > 1
+                ? `⚠️ Ambiguous session prefix: ${rawTarget}. Matches ${ambiguousPrefixMatches.length} sessions. Use /sessions or provide more characters.`
+                : `⚠️ Session not found: ${rawTarget}. Use /sessions to list available sessions.`,
         },
       };
     }

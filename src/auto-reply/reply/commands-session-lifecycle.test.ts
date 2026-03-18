@@ -454,4 +454,32 @@ describe("/session switch snapshot restore", () => {
     expect(params.sessionEntry.memoryFlushAt).toBeUndefined();
     expect(params.sessionEntry.memoryFlushCompactionCount).toBeUndefined();
   });
+
+  it("reports ambiguous session id prefixes instead of falling back to not found", async () => {
+    const params = buildCommandTestParams("/session abc", baseCfg);
+    const now = Date.now();
+    params.sessionEntry = {
+      sessionId: "session-current",
+      updatedAt: now,
+      sessionHistory: [
+        {
+          sessionId: "abc11111-oldest",
+          createdAt: now - 2_000,
+          metadata: {},
+        },
+        {
+          sessionId: "abc22222-newer",
+          createdAt: now - 1_000,
+          metadata: {},
+        },
+      ],
+    };
+    params.sessionStore = { [params.sessionKey]: params.sessionEntry };
+
+    const result = await handleSessionCommand(params, true);
+
+    expect(result?.reply?.text).toContain("Ambiguous session prefix: abc");
+    expect(result?.reply?.text).toContain("Matches 2 sessions");
+    expect(params.sessionEntry.sessionId).toBe("session-current");
+  });
 });
