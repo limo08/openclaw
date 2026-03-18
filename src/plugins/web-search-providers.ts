@@ -5,7 +5,7 @@ import {
   getTopLevelCredentialValue,
   setScopedCredentialValue,
   setTopLevelCredentialValue,
-} from "../agents/tools/web-search-plugin-factory.js";
+} from "../plugin-sdk/provider-web-search.js";
 import {
   withBundledPluginAllowlistCompat,
   withBundledPluginEnablementCompat,
