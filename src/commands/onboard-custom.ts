@@ -621,7 +621,7 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
         maxTokens: DEFAULT_MAX_TOKENS,
         input: ["text", "image"] as Array<"text" | "image">,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        reasoning: false,
+        reasoning: true,
         compat: { supportsStore: false },
       }
     : {
@@ -647,7 +647,7 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
   const normalizedApiKey =
     normalizeOptionalProviderApiKey(params.apiKey) ??
     normalizeOptionalProviderApiKey(existingApiKey);
-  
+
   const providerApi = isAzure
     ? ("openai-responses" as const)
     : resolveProviderApi(params.compatibility);
