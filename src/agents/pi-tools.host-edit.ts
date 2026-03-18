@@ -4,6 +4,9 @@ import path from "node:path";
 import type { AgentToolResult, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import type { AnyAgentTool } from "./pi-tools.types.js";
 
+/** Normalize all line endings to LF for reliable string comparison. */
+const normalizeToLF = (text: string): string => text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
 /** Resolve path for host edit: expand ~ and resolve relative paths against root. */
 function resolveHostEditPath(root: string, pathParam: string): string {
   const expanded =
@@ -58,9 +61,17 @@ export function wrapHostEditToolWithPostWriteRecovery(
           // Only recover when the replacement likely occurred: newText is present and oldText
           // is no longer present. This avoids false success when upstream threw before writing
           // (e.g. oldText not found) but the file already contained newText (review feedback).
-          const hasNew = content.includes(newText);
+          // Normalize line endings before comparison: the upstream edit tool normalizes to LF
+          // internally and restores original endings when writing, so the file on disk may have
+          // CRLF while the params contain LF. Without normalization the includes() check fails,
+          // causing a false "edit failed" error even though the file was correctly updated (#49363).
+          const normalizedContent = normalizeToLF(content);
+          const normalizedNewText = normalizeToLF(newText);
+          const hasNew = normalizedContent.includes(normalizedNewText);
           const stillHasOld =
-            oldText !== undefined && oldText.length > 0 && content.includes(oldText);
+            oldText !== undefined &&
+            oldText.length > 0 &&
+            normalizedContent.includes(normalizeToLF(oldText));
           if (hasNew && !stillHasOld) {
             return {
               content: [

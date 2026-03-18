@@ -87,3 +87,36 @@ describe("createHostWorkspaceEditTool post-write recovery", () => {
     ).rejects.toThrow("Simulated post-write failure");
   });
 });
+
+describe("CRLF line ending false positive (issue #49363)", () => {
+  let tmpDir = "";
+
+  afterEach(async () => {
+    mocks.executeThrows = true;
+    if (tmpDir) {
+      await fs.rm(tmpDir, { recursive: true, force: true });
+      tmpDir = "";
+    }
+  });
+
+  it("returns success when file was written with CRLF but newText uses LF", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-edit-crlf-"));
+    const filePath = path.join(tmpDir, "crlf-file.md");
+    const oldText = "old line\nmore old";
+    const newText = "new line\nmore new";
+    // Simulate: upstream wrote the file with CRLF restored, but newText param has LF
+    await fs.writeFile(filePath, `before\r\nnew line\r\nmore new\r\nafter\r\n`, "utf-8");
+
+    const tool = createHostWorkspaceEditTool(tmpDir);
+    // Verify that the recovery path correctly detects newText is present despite
+    // the file on disk using CRLF line endings while the param uses LF (issue #49363).
+    const result = await tool.execute("call-crlf", { path: filePath, oldText, newText }, undefined);
+
+    expect(result).toBeDefined();
+    const content = Array.isArray((result as { content?: unknown }).content)
+      ? (result as { content: Array<{ type?: string; text?: string }> }).content
+      : [];
+    const textBlock = content.find((b) => b?.type === "text" && typeof b.text === "string");
+    expect(textBlock?.text).toContain("Successfully replaced text");
+  });
+});
