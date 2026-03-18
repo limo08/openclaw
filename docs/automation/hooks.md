@@ -274,6 +274,7 @@ Triggered when messages are received or sent:
 - **`message:received`**: When an inbound message is received from any channel. Fires early in processing before media understanding. Content may contain raw placeholders like `<media:audio>` for media attachments that haven't been processed yet.
 - **`message:transcribed`**: When a message has been fully processed, including audio transcription and link understanding. At this point, `transcript` contains the full transcript text for audio messages. Use this hook when you need access to transcribed audio content.
 - **`message:preprocessed`**: Fires for every message after all media + link understanding completes, giving hooks access to the fully enriched body (transcripts, image descriptions, link summaries) before the agent sees it.
+- **`message:enrich`**: Runs after media + link understanding completes and before the agent turn starts. Unlike the other message hooks, this one is awaited and may return `{ metadata }`, which OpenClaw appends to the per-message `UntrustedContext` block without mutating the system prompt.
 - **`message:sent`**: When an outbound message is successfully sent
 
 #### Message Event Context
@@ -337,7 +338,43 @@ Message events include rich context about the message:
   isGroup?: boolean,
   groupId?: string,
 }
+
+// message:enrich context
+{
+  content: string,        // Canonical inbound content before media/link enrichment
+  body?: string,          // Raw inbound body
+  bodyForAgent?: string,  // Final enriched body after media/link understanding
+  transcript?: string,    // Transcript when audio was present
+  channelId: string,      // Channel (e.g., "telegram", "whatsapp")
+  accountId?: string,     // Provider account ID for multi-account setups
+  conversationId?: string,
+  messageId?: string,
+  isGroup?: boolean,
+  groupId?: string,
+  metadata?: {
+    to?: string,
+    provider?: string,
+    surface?: string,
+    threadId?: string | number,
+    senderId?: string,
+    senderName?: string,
+    senderUsername?: string,
+    senderE164?: string,
+    guildId?: string,
+    channelName?: string,
+  }
+}
 ```
+
+`message:enrich` handlers may return:
+
+```typescript
+{
+  metadata?: Record<string, unknown>;
+}
+```
+
+OpenClaw merges returned metadata from all enrich handlers in registration order, with later handlers winning on key conflicts.
 
 #### Example: Message Logger Hook
 

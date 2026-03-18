@@ -14,8 +14,8 @@ import { sanitizeForLog } from "../terminal/ansi.js";
 import { resolveHookConfig } from "./config.js";
 import { shouldIncludeHook } from "./config.js";
 import { buildImportUrl } from "./import-url.js";
-import type { InternalHookHandler } from "./internal-hooks.js";
-import { registerInternalHook } from "./internal-hooks.js";
+import type { InternalEnrichHookHandler, InternalHookHandler } from "./internal-hooks.js";
+import { registerInternalEnrichHook, registerInternalHook } from "./internal-hooks.js";
 import { resolveFunctionModuleExport } from "./module-loader.js";
 import { loadWorkspaceHookEntries } from "./workspace.js";
 
@@ -141,7 +141,11 @@ export async function loadInternalHooks(
         }
 
         for (const event of events) {
-          registerInternalHook(event, handler);
+          if (event === "message:enrich") {
+            registerInternalEnrichHook(event, handler as InternalEnrichHookHandler);
+          } else {
+            registerInternalHook(event, handler);
+          }
         }
 
         log.info(
@@ -232,7 +236,11 @@ export async function loadInternalHooks(
         continue;
       }
 
-      registerInternalHook(handlerConfig.event, handler);
+      if (handlerConfig.event === "message:enrich") {
+        registerInternalEnrichHook(handlerConfig.event, handler as InternalEnrichHookHandler);
+      } else {
+        registerInternalHook(handlerConfig.event, handler);
+      }
       log.info(
         `Registered hook (legacy): ${safeLogValue(handlerConfig.event)} -> ${safeLogValue(modulePath)}${exportName !== "default" ? `#${safeLogValue(exportName)}` : ""}`,
       );
