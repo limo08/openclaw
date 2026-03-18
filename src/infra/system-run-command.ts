@@ -14,8 +14,8 @@ import {
 export type SystemRunCommandValidation =
   | {
       ok: true;
-      shellCommand: string | null;
-      cmdText: string;
+      shellPayload: string | null;
+      commandText: string;
       previewText: string | null;
     }
   | {
@@ -28,9 +28,8 @@ export type ResolvedSystemRunCommand =
   | {
       ok: true;
       argv: string[];
-      rawCommand: string | null;
-      shellCommand: string | null;
-      cmdText: string;
+      commandText: string;
+      shellPayload: string | null;
       previewText: string | null;
     }
   | {
@@ -57,6 +56,12 @@ export function formatExecCommand(argv: string[]): string {
 export function extractShellCommandFromArgv(argv: string[]): string | null {
   return extractShellWrapperCommand(argv).command;
 }
+
+type SystemRunCommandDisplay = {
+  shellPayload: string | null;
+  commandText: string;
+  previewText: string | null;
+};
 
 const POSIX_OR_POWERSHELL_INLINE_WRAPPER_NAMES = new Set([
   "ash",
@@ -100,29 +105,42 @@ function hasTrailingPositionalArgvAfterInlineCommand(argv: string[]): boolean {
   return wrapperArgv.slice(inlineCommandIndex + 1).some((entry) => entry.trim().length > 0);
 }
 
+function buildSystemRunCommandDisplay(argv: string[]): SystemRunCommandDisplay {
+  const shellWrapperResolution = extractShellWrapperCommand(argv);
+  const shellPayload = shellWrapperResolution.command;
+  const shellWrapperPositionalArgv = hasTrailingPositionalArgvAfterInlineCommand(argv);
+  const envManipulationBeforeShellWrapper =
+    shellWrapperResolution.isWrapper && hasEnvManipulationBeforeShellWrapper(argv);
+  const formattedArgv = formatExecCommand(argv);
+  const previewText =
+    shellPayload !== null && !envManipulationBeforeShellWrapper && !shellWrapperPositionalArgv
+      ? shellPayload.trim()
+      : null;
+  return {
+    shellPayload,
+    commandText: formattedArgv,
+    previewText,
+  };
+}
+
+function normalizeRawCommandText(rawCommand?: unknown): string | null {
+  return typeof rawCommand === "string" && rawCommand.trim().length > 0 ? rawCommand.trim() : null;
+}
+
 export function validateSystemRunCommandConsistency(params: {
   argv: string[];
   rawCommand?: string | null;
+  allowLegacyShellText?: boolean;
 }): SystemRunCommandValidation {
-  const raw =
-    typeof params.rawCommand === "string" && params.rawCommand.trim().length > 0
-      ? params.rawCommand.trim()
-      : null;
-  const shellWrapperResolution = extractShellWrapperCommand(params.argv);
-  const shellCommand = shellWrapperResolution.command;
-  const shellWrapperPositionalArgv = hasTrailingPositionalArgvAfterInlineCommand(params.argv);
-  const envManipulationBeforeShellWrapper =
-    shellWrapperResolution.isWrapper && hasEnvManipulationBeforeShellWrapper(params.argv);
-  const mustBindDisplayToFullArgv = envManipulationBeforeShellWrapper || shellWrapperPositionalArgv;
-  const formattedArgv = formatExecCommand(params.argv);
-  const legacyShellText =
-    shellCommand !== null && !mustBindDisplayToFullArgv ? shellCommand.trim() : null;
-  const previewText = legacyShellText;
-  const cmdText = raw ?? legacyShellText ?? formattedArgv;
+  const raw = normalizeRawCommandText(params.rawCommand);
+  const display = buildSystemRunCommandDisplay(params.argv);
 
   if (raw) {
-    const matchesCanonicalArgv = raw === formattedArgv;
-    const matchesLegacyShellText = legacyShellText !== null && raw === legacyShellText;
+    const matchesCanonicalArgv = raw === display.commandText;
+    const matchesLegacyShellText =
+      params.allowLegacyShellText === true &&
+      display.previewText !== null &&
+      raw === display.previewText;
     if (!matchesCanonicalArgv && !matchesLegacyShellText) {
       return {
         ok: false,
@@ -130,8 +148,8 @@ export function validateSystemRunCommandConsistency(params: {
         details: {
           code: "RAW_COMMAND_MISMATCH",
           rawCommand: raw,
-          inferred: legacyShellText ?? formattedArgv,
-          formattedArgv,
+          inferred: display.commandText,
+          formattedArgv: display.commandText,
         },
       };
     }
@@ -139,10 +157,9 @@ export function validateSystemRunCommandConsistency(params: {
 
   return {
     ok: true,
-    // Only treat this as a shell command when argv is a recognized shell wrapper.
-    shellCommand: shellCommand !== null ? shellCommand : null,
-    cmdText,
-    previewText,
+    shellPayload: display.shellPayload,
+    commandText: display.commandText,
+    previewText: display.previewText,
   };
 }
 
@@ -150,10 +167,24 @@ export function resolveSystemRunCommand(params: {
   command?: unknown;
   rawCommand?: unknown;
 }): ResolvedSystemRunCommand {
-  const raw =
-    typeof params.rawCommand === "string" && params.rawCommand.trim().length > 0
-      ? params.rawCommand.trim()
-      : null;
+  return resolveSystemRunCommandWithMode(params, false);
+}
+
+export function resolveSystemRunCommandRequest(params: {
+  command?: unknown;
+  rawCommand?: unknown;
+}): ResolvedSystemRunCommand {
+  return resolveSystemRunCommandWithMode(params, true);
+}
+
+function resolveSystemRunCommandWithMode(
+  params: {
+    command?: unknown;
+    rawCommand?: unknown;
+  },
+  allowLegacyShellText: boolean,
+): ResolvedSystemRunCommand {
+  const raw = normalizeRawCommandText(params.rawCommand);
   const command = Array.isArray(params.command) ? params.command : [];
   if (command.length === 0) {
     if (raw) {
@@ -166,9 +197,8 @@ export function resolveSystemRunCommand(params: {
     return {
       ok: true,
       argv: [],
-      rawCommand: null,
-      shellCommand: null,
-      cmdText: "",
+      commandText: "",
+      shellPayload: null,
       previewText: null,
     };
   }
@@ -177,6 +207,7 @@ export function resolveSystemRunCommand(params: {
   const validation = validateSystemRunCommandConsistency({
     argv,
     rawCommand: raw,
+    allowLegacyShellText,
   });
   if (!validation.ok) {
     return {
@@ -189,9 +220,8 @@ export function resolveSystemRunCommand(params: {
   return {
     ok: true,
     argv,
-    rawCommand: raw,
-    shellCommand: validation.shellCommand,
-    cmdText: validation.cmdText,
+    commandText: validation.commandText,
+    shellPayload: validation.shellPayload,
     previewText: validation.previewText,
   };
 }
