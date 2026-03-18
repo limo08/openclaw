@@ -38,14 +38,19 @@ const stravaPlugin = {
     const getRedirectUri = () => {
       // Explicit override takes priority (tunnels, custom domains).
       if (callbackUrl) return callbackUrl;
+      const gwTls = (api.config.gateway as Record<string, unknown> | undefined)?.tls as
+        | Record<string, unknown>
+        | undefined;
+      const tls = !!gwTls?.enabled;
+      const scheme = tls ? "https" : "http";
       // Derive from gateway bind config when not loopback.
       const bind = api.config.gateway?.bind as string | undefined;
       const customHost = api.config.gateway?.customBindHost as string | undefined;
       if (bind === "custom" && customHost?.trim()) {
-        return `http://${customHost.trim()}:${gatewayPort}${OAUTH_CALLBACK_PATH}`;
+        return `${scheme}://${customHost.trim()}:${gatewayPort}${OAUTH_CALLBACK_PATH}`;
       }
       // Default to localhost for loopback / unset bind.
-      return `http://localhost:${gatewayPort}${OAUTH_CALLBACK_PATH}`;
+      return `${scheme}://localhost:${gatewayPort}${OAUTH_CALLBACK_PATH}`;
     };
 
     // Register the 4 Strava tools.
@@ -139,9 +144,10 @@ const stravaPlugin = {
     });
 
     // Convenience redirect — visiting this URL starts the OAuth flow.
+    // Uses "gateway" auth so only authenticated users can initiate token binding.
     api.registerHttpRoute({
       path: OAUTH_START_PATH,
-      auth: "plugin",
+      auth: "gateway",
       handler: async (_req: IncomingMessage, res: ServerResponse) => {
         const state = generateOAuthState();
         tokenStore.saveState(state);

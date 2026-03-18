@@ -7,7 +7,8 @@
     "additionalProperties": false,
     "properties": {
       "clientId": { "type": "string" },
-      "clientSecret": { "type": "string" }
+      "clientSecret": { "type": "string" },
+      "callbackUrl": { "type": "string" }
     },
     "required": ["clientId", "clientSecret"]
   },
@@ -22,6 +23,11 @@
       "sensitive": true,
       "placeholder": "abcdef1234567890...",
       "help": "Found under your Strava API app settings."
+    },
+    "callbackUrl": {
+      "label": "OAuth Callback URL (optional)",
+      "placeholder": "https://my-gateway.example.com:18789/api/plugins/strava/oauth/callback",
+      "help": "Override the OAuth redirect URI for tunnels, reverse proxies, or custom domains. Leave blank for localhost."
     }
   }
 }
