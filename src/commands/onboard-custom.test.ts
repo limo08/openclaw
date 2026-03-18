@@ -433,11 +433,11 @@ describe("applyCustomApiConfig", () => {
     expect(() => applyCustomApiConfig(params)).toThrow(expectedMessage);
   });
 
-  it("produces azure-specific config for Azure OpenAI URLs", () => {
+  it("produces azure-specific config for Azure OpenAI URLs with reasoning model", () => {
     const result = applyCustomApiConfig({
       config: {},
       baseUrl: "https://kunalk16-resource.openai.azure.com",
-      modelId: "gpt-5.2-chat",
+      modelId: "o4-mini",
       compatibility: "openai",
       apiKey: "abcd1234",
     });
@@ -449,7 +449,7 @@ describe("applyCustomApiConfig", () => {
     expect(provider?.authHeader).toBe(false);
     expect(provider?.headers).toEqual({ "api-key": "abcd1234" });
 
-    const model = provider?.models?.find((m) => m.id === "gpt-5.2-chat");
+    const model = provider?.models?.find((m) => m.id === "o4-mini");
     expect(model?.input).toEqual(["text", "image"]);
     expect(model?.reasoning).toBe(true);
     expect(model?.compat).toEqual({ supportsStore: false });
@@ -473,6 +473,14 @@ describe("applyCustomApiConfig", () => {
     expect(provider?.api).toBe("openai-responses");
     expect(provider?.authHeader).toBe(false);
     expect(provider?.headers).toEqual({ "api-key": "key123" });
+
+    const model = provider?.models?.find((m) => m.id === "gpt-4.1");
+    expect(model?.reasoning).toBe(false);
+    expect(model?.input).toEqual(["text"]);
+    expect(model?.compat).toEqual({ supportsStore: false });
+
+    const modelRef = `${providerId}/gpt-4.1`;
+    expect(result.config.agents?.defaults?.models?.[modelRef]?.params?.thinking).toBeUndefined();
   });
 
   it("strips pre-existing deployment path from Azure URL in stored config", () => {
@@ -511,9 +519,9 @@ describe("applyCustomApiConfig", () => {
     ).toBeUndefined();
   });
 
-  it("preserves existing per-model thinking when already set for azure", () => {
+  it("preserves existing per-model thinking when already set for azure reasoning model", () => {
     const providerId = "custom-my-resource-openai-azure-com";
-    const modelRef = `${providerId}/gpt-4.1`;
+    const modelRef = `${providerId}/o3-mini`;
     const result = applyCustomApiConfig({
       config: {
         agents: {
@@ -525,7 +533,7 @@ describe("applyCustomApiConfig", () => {
         },
       } as OpenClawConfig,
       baseUrl: "https://my-resource.openai.azure.com",
-      modelId: "gpt-4.1",
+      modelId: "o3-mini",
       compatibility: "openai",
       apiKey: "key",
     });
