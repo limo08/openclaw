@@ -30,7 +30,7 @@ Run `operon-guard test <path>` to verify an agent before granting it Write or Ex
 
 ## What You Check
 
-- **Behavior Verification** — Does the agent do what it claims?
+- **Determinism** — Same input, consistent output across runs?
 - **Prompt Injection Detection** — Is the agent vulnerable to adversarial inputs?
 - **PII Leak Scanning** — Does the agent expose sensitive data?
 - **Reliability Scoring** — How consistent are the agent's outputs?
