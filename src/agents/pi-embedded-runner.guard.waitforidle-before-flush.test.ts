@@ -124,6 +124,56 @@ describe("flushPendingToolResultsAfterIdle", () => {
     expect(getMessages(sm).map((m) => m.role)).toEqual(["assistant", "user"]);
   });
 
+  it("waits across retry gap when pending tool calls still exist", async () => {
+    const sm = guardSessionManager(SessionManager.inMemory());
+    const appendMessage = sm.appendMessage.bind(sm) as unknown as (message: AgentMessage) => void;
+
+    const idleDeferred = deferred<void>();
+    const waitForIdle = vi.fn<() => Promise<void>>(() => idleDeferred.promise);
+
+    // pendingToolCount returns 2 on first call (tools still running after idle),
+    // then 0 once drained.
+    const pendingToolCount = vi.fn<() => number>().mockReturnValueOnce(2).mockReturnValueOnce(0);
+
+    // onPendingToolsDrained resolves after a short delay, simulating the tool
+    // execution counter reaching zero.
+    const drainDeferred = deferred<void>();
+    const onPendingToolsDrained = vi.fn<() => Promise<void>>(() => drainDeferred.promise);
+
+    const agent = { waitForIdle, pendingToolCount, onPendingToolsDrained };
+
+    appendMessage(assistantToolCall("call_retry_gap_1"));
+
+    const flushPromise = flushPendingToolResultsAfterIdle({
+      agent,
+      sessionManager: sm,
+      timeoutMs: 1_000,
+    });
+
+    // Flush is waiting for idle; synthetic result must not appear yet.
+    await Promise.resolve();
+    expect(getMessages(sm).map((m) => m.role)).toEqual(["assistant"]);
+
+    // Idle resolves but tools are still pending (count = 2); flush waits for drain.
+    idleDeferred.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Tool result arrives and drain signal fires.
+    appendMessage(toolResult("call_retry_gap_1", "arrived after retry gap"));
+    drainDeferred.resolve();
+    await flushPromise;
+
+    const messages = getMessages(sm);
+    expect(messages.map((m) => m.role)).toEqual(["assistant", "toolResult"]);
+    expect((messages[1] as { isError?: boolean }).isError).not.toBe(true);
+    expect((messages[1] as { content?: Array<{ text?: string }> }).content?.[0]?.text).toBe(
+      "arrived after retry gap",
+    );
+    expect(waitForIdle).toHaveBeenCalledTimes(1);
+    expect(onPendingToolsDrained).toHaveBeenCalledTimes(1);
+  });
+
   it("clears timeout handle when waitForIdle resolves first", async () => {
     const sm = guardSessionManager(SessionManager.inMemory());
     vi.useFakeTimers();
