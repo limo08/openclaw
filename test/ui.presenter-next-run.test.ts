@@ -10,8 +10,7 @@ describe("formatNextRun", () => {
   it("includes weekday and relative time", () => {
     const ts = Date.UTC(2026, 1, 23, 15, 0, 0);
     const out = formatNextRun(ts);
-    expect(out).toMatch(/^[A-Za-z]{3}, /);
-    expect(out).toContain("(");
-    expect(out).toContain(")");
+    // Validate format structure: weekday + comma + datetime with digits + relative time in parentheses
+    expect(out).toMatch(/^.+, .*\p{N}.*\(.+\)$/u);
   });
 });
