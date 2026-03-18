@@ -42,7 +42,7 @@ describe("extra-params: provider tool_stream support", () => {
       } as Model<"openai-completions">,
     });
 
-    expect(payload.tool_stream).toBe(true);
+    expect(payload["tool_stream"]).toBe(true);
   });
 
   it("injects tool_stream=true for xai provider by default", () => {

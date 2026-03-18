@@ -252,7 +252,7 @@ describe("web monitor inbox", () => {
     });
   });
 
-  it("handles append messages by marking them read but skipping auto-reply", async () => {
+  it("marks stale append messages as read but skips auto-reply", async () => {
     const { onMessage, listener, sock } = await openInboxMonitor();
     const staleTs = Math.floor(Date.now() / 1000) - 300;
 

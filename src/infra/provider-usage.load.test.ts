@@ -8,7 +8,7 @@ import {
   usageNow,
 } from "./provider-usage.test-support.js";
 
-type ProviderAuth = ProviderUsageAuth<typeof loadProviderUsageSummary>;
+type ProviderAuth = ProviderUsageAuth;
 
 const resolveProviderUsageSnapshotWithPlugin = vi.hoisted(() => vi.fn(async () => null));
 
