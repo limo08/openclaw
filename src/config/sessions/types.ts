@@ -234,6 +234,29 @@ export type SessionEntry = {
   sessionHistory?: SessionHistoryItem[];
 };
 
+export function buildSessionHistoryMetadata(entry: SessionEntry): SessionHistoryItemMetadata {
+  return {
+    systemSent: entry.systemSent,
+    thinkingLevel: entry.thinkingLevel,
+    verboseLevel: entry.verboseLevel,
+    reasoningLevel: entry.reasoningLevel,
+    ttsAuto: entry.ttsAuto,
+    modelOverride: entry.modelOverride,
+    providerOverride: entry.providerOverride,
+    label: entry.label,
+    inputTokens: entry.inputTokens,
+    outputTokens: entry.outputTokens,
+    cacheRead: entry.cacheRead,
+    cacheWrite: entry.cacheWrite,
+    totalTokens: entry.totalTokens,
+    totalTokensFresh: entry.totalTokensFresh,
+    contextTokens: entry.contextTokens,
+    compactionCount: entry.compactionCount,
+    memoryFlushAt: entry.memoryFlushAt,
+    memoryFlushCompactionCount: entry.memoryFlushCompactionCount,
+  };
+}
+
 function normalizeRuntimeField(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;

@@ -3,6 +3,7 @@ import { formatThreadBindingDurationLabel } from "../../channels/thread-bindings
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import { isRestartEnabled } from "../../config/commands.js";
 import {
+  buildSessionHistoryMetadata,
   DEFAULT_SESSION_HISTORY_LIMIT,
   type SessionEntry,
   type SessionHistoryItem,
@@ -54,26 +55,7 @@ function buildSessionHistoryItem(entry: SessionEntry): SessionHistoryItem {
     sessionId: entry.sessionId,
     createdAt: entry.updatedAt ?? Date.now(),
     label: entry.label,
-    metadata: {
-      systemSent: entry.systemSent,
-      thinkingLevel: entry.thinkingLevel,
-      verboseLevel: entry.verboseLevel,
-      reasoningLevel: entry.reasoningLevel,
-      ttsAuto: entry.ttsAuto,
-      modelOverride: entry.modelOverride,
-      providerOverride: entry.providerOverride,
-      label: entry.label,
-      inputTokens: entry.inputTokens,
-      outputTokens: entry.outputTokens,
-      cacheRead: entry.cacheRead,
-      cacheWrite: entry.cacheWrite,
-      totalTokens: entry.totalTokens,
-      totalTokensFresh: entry.totalTokensFresh,
-      contextTokens: entry.contextTokens,
-      compactionCount: entry.compactionCount,
-      memoryFlushAt: entry.memoryFlushAt,
-      memoryFlushCompactionCount: entry.memoryFlushCompactionCount,
-    },
+    metadata: buildSessionHistoryMetadata(entry),
   };
 }
 
@@ -85,32 +67,14 @@ function buildSwitchableSessionList(entry: SessionEntry): Array<{
   metadata?: SessionHistoryItem["metadata"];
 }> {
   const history = (entry.sessionHistory ?? []).toReversed();
+  const currentItem = buildSessionHistoryItem(entry);
   return [
     {
-      sessionId: entry.sessionId,
+      sessionId: currentItem.sessionId,
       current: true,
-      label: entry.label,
-      createdAt: entry.updatedAt,
-      metadata: {
-        systemSent: entry.systemSent,
-        thinkingLevel: entry.thinkingLevel,
-        verboseLevel: entry.verboseLevel,
-        reasoningLevel: entry.reasoningLevel,
-        ttsAuto: entry.ttsAuto,
-        modelOverride: entry.modelOverride,
-        providerOverride: entry.providerOverride,
-        label: entry.label,
-        inputTokens: entry.inputTokens,
-        outputTokens: entry.outputTokens,
-        cacheRead: entry.cacheRead,
-        cacheWrite: entry.cacheWrite,
-        totalTokens: entry.totalTokens,
-        totalTokensFresh: entry.totalTokensFresh,
-        contextTokens: entry.contextTokens,
-        compactionCount: entry.compactionCount,
-        memoryFlushAt: entry.memoryFlushAt,
-        memoryFlushCompactionCount: entry.memoryFlushCompactionCount,
-      },
+      label: currentItem.label,
+      createdAt: currentItem.createdAt,
+      metadata: currentItem.metadata,
     },
     ...history.map((item) => ({
       sessionId: item.sessionId,
