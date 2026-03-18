@@ -42,7 +42,7 @@ function resolveSessionCommandUsage() {
 function resolveSessionHistoryLimit(params: Parameters<CommandHandler>[0]): number {
   const limit = params.cfg.session?.historyLimit;
   return typeof limit === "number" && Number.isFinite(limit)
-    ? Math.max(1, Math.floor(limit))
+    ? Math.max(0, Math.floor(limit))
     : DEFAULT_SESSION_HISTORY_LIMIT;
 }
 

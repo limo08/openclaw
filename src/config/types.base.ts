@@ -136,7 +136,7 @@ export type SessionConfig = {
   /**
    * Maximum number of past sessions to keep in the per-key history queue.
    * Used by `/sessions` and `/session <n>` for in-chat session switching.
-   * Default: 5.
+   * Set to 0 to disable switchable session history. Default: 5.
    */
   historyLimit?: number;
 };

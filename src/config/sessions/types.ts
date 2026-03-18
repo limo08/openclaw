@@ -97,6 +97,7 @@ export type SessionHistoryItemMetadata = {
  */
 export type SessionHistoryItem = {
   sessionId: string;
+  /** Timestamp captured when the session was deactivated/pushed into history. */
   createdAt: number;
   /** User-assigned label (future extension). */
   label?: string;

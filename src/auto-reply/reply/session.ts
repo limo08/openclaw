@@ -255,7 +255,7 @@ export async function initSessionState(params: {
   const storePath = resolveStorePath(sessionCfg?.store, { agentId });
   const historyLimit =
     typeof sessionCfg?.historyLimit === "number" && Number.isFinite(sessionCfg.historyLimit)
-      ? Math.max(1, Math.floor(sessionCfg.historyLimit))
+      ? Math.max(0, Math.floor(sessionCfg.historyLimit))
       : DEFAULT_SESSION_HISTORY_LIMIT;
 
   // CRITICAL: Skip cache to ensure fresh data when resolving session identity.
@@ -425,15 +425,6 @@ export async function initSessionState(params: {
     persistedAuthProfileOverrideCompactionCount = entry.authProfileOverrideCompactionCount;
     persistedLabel = entry.label;
   } else {
-    // Push the outgoing session into the LRU history queue so the user can
-    // switch back to it later via `/session <n>` or `/session back`.
-    if (entry?.sessionId) {
-      const historyLimit = sessionCfg?.historyLimit ?? DEFAULT_SESSION_HISTORY_LIMIT;
-      if (historyLimit > 0) {
-        pushSessionHistory(entry, historyLimit);
-      }
-    }
-
     sessionId = crypto.randomUUID();
     isNewSession = true;
     systemSent = false;
