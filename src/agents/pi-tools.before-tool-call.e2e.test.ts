@@ -4,10 +4,19 @@ import {
   resetDiagnosticEventsForTest,
   type DiagnosticToolLoopEvent,
 } from "../infra/diagnostic-events.js";
-import { resetDiagnosticSessionStateForTest } from "../logging/diagnostic-session-state.js";
+import {
+  getDiagnosticSessionState,
+  resetDiagnosticSessionStateForTest,
+} from "../logging/diagnostic-session-state.js";
 import { getGlobalHookRunner } from "../plugins/hook-runner-global.js";
 import { wrapToolWithBeforeToolCallHook } from "./pi-tools.before-tool-call.js";
-import { CRITICAL_THRESHOLD, GLOBAL_CIRCUIT_BREAKER_THRESHOLD } from "./tool-loop-detection.js";
+import {
+  BROWSER_SEARCH_CRITICAL_THRESHOLD,
+  BROWSER_SEARCH_WARNING_THRESHOLD,
+  CRITICAL_THRESHOLD,
+  GLOBAL_CIRCUIT_BREAKER_THRESHOLD,
+  WARNING_THRESHOLD,
+} from "./tool-loop-detection.js";
 import type { AnyAgentTool } from "./tools/common.js";
 
 vi.mock("../plugins/hook-runner-global.js");
@@ -132,10 +141,28 @@ describe("before_tool_call loop detection behavior", () => {
     };
   }
 
+  function createBrowserSearchFixture() {
+    const execute = vi
+      .fn()
+      .mockImplementation(async (_toolCallId: string, params: { url: string }) => {
+        return {
+          content: [{ type: "text", text: `results for ${params.url}` }],
+          details: { url: params.url },
+        };
+      });
+    return {
+      tool: createWrappedTool("browser", execute),
+      paramsForQuery: (query: string, host = "www.google.com") => ({
+        action: "open",
+        url: `https://${host}/search?q=${encodeURIComponent(query)}`,
+      }),
+    };
+  }
+
   function expectCriticalLoopEvent(
     loopEvent: DiagnosticToolLoopEvent | undefined,
     params: {
-      detector: "ping_pong" | "known_poll_no_progress";
+      detector: "ping_pong" | "known_poll_no_progress" | "browser_search_storm";
       toolName: string;
       count?: number;
     },
@@ -191,6 +218,196 @@ describe("before_tool_call loop detection behavior", () => {
         tool.execute(`poll-progress-${i}`, params, undefined, undefined),
       ).resolves.toBeDefined();
     }
+  });
+
+  it("emits structured warning diagnostic events for browser search storms", async () => {
+    await withToolLoopEvents(async (emitted) => {
+      const { tool, paramsForQuery } = createBrowserSearchFixture();
+
+      for (let i = 0; i < BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        await tool.execute(
+          `browser-search-${i}`,
+          paramsForQuery(`openclaw issue ${i}`),
+          undefined,
+          undefined,
+        );
+      }
+
+      await tool.execute(
+        `browser-search-${BROWSER_SEARCH_WARNING_THRESHOLD}`,
+        paramsForQuery(`openclaw issue ${BROWSER_SEARCH_WARNING_THRESHOLD}`),
+        undefined,
+        undefined,
+      );
+
+      const browserWarns = emitted.filter(
+        (evt) => evt.level === "warning" && evt.detector === "browser_search_storm",
+      );
+      expect(browserWarns).toHaveLength(1);
+      const loopEvent = browserWarns[0];
+      expect(loopEvent?.type).toBe("tool.loop");
+      expect(loopEvent?.level).toBe("warning");
+      expect(loopEvent?.action).toBe("warn");
+      expect(loopEvent?.detector).toBe("browser_search_storm");
+      expect(loopEvent?.count).toBe(BROWSER_SEARCH_WARNING_THRESHOLD);
+      expect(loopEvent?.toolName).toBe("browser");
+    });
+  });
+
+  it("evaluates browser search storms after before_tool_call rewrites the URL", async () => {
+    hookRunner.hasHooks.mockReturnValue(true);
+    hookRunner.runBeforeToolCall.mockImplementation(
+      async ({ params }: { params: { url?: string } }) => ({
+        params: {
+          url:
+            typeof params?.url === "string"
+              ? "https://www.google.com/search?q=openclaw+canonical"
+              : params?.url,
+        },
+      }),
+    );
+
+    await withToolLoopEvents(async (emitted) => {
+      const { tool, paramsForQuery } = createBrowserSearchFixture();
+
+      for (let i = 0; i <= BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        await tool.execute(
+          `browser-search-canonical-${i}`,
+          paramsForQuery(`openclaw raw variant ${i}`),
+          undefined,
+          undefined,
+        );
+      }
+
+      const browserWarns = emitted.filter(
+        (evt) => evt.level === "warning" && evt.detector === "browser_search_storm",
+      );
+      expect(browserWarns).toHaveLength(0);
+    });
+  });
+
+  it("records hook-blocked calls so repeated forbidden actions still emit loop warnings", async () => {
+    hookRunner.hasHooks.mockReturnValue(true);
+    hookRunner.runBeforeToolCall.mockResolvedValue({
+      block: true,
+      blockReason: "blocked by policy",
+    });
+    const execute = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "should not run" }],
+      details: { ok: true },
+    });
+    const tool = createWrappedTool("read", execute);
+
+    await withToolLoopEvents(
+      async (emitted) => {
+        for (let i = 0; i <= WARNING_THRESHOLD; i += 1) {
+          await expect(
+            tool.execute(`blocked-read-${i}`, { path: "/forbidden.txt" }, undefined, undefined),
+          ).rejects.toThrow("blocked by policy");
+        }
+
+        const genericWarns = emitted.filter(
+          (evt) => evt.level === "warning" && evt.detector === "generic_repeat",
+        );
+        expect(genericWarns).toHaveLength(1);
+        expect(genericWarns[0]?.count).toBe(WARNING_THRESHOLD);
+        expect(execute).not.toHaveBeenCalled();
+      },
+      (evt) => evt.level === "warning",
+    );
+  });
+
+  it("closes hook-blocked loop-history entries with an error outcome", async () => {
+    hookRunner.hasHooks.mockReturnValue(true);
+    hookRunner.runBeforeToolCall.mockResolvedValue({
+      block: true,
+      blockReason: "blocked by policy",
+    });
+    const execute = vi.fn().mockResolvedValue({
+      content: [{ type: "text", text: "should not run" }],
+      details: { ok: true },
+    });
+    const tool = createWrappedTool("read", execute);
+
+    await expect(
+      tool.execute("blocked-read-finalized", { path: "/forbidden.txt" }, undefined, undefined),
+    ).rejects.toThrow("blocked by policy");
+
+    const sessionState = getDiagnosticSessionState({
+      sessionKey: enabledLoopDetectionContext.sessionKey,
+      sessionId: enabledLoopDetectionContext.agentId,
+    });
+    const blockedEntry = sessionState.toolCallHistory?.find(
+      (call) => call.toolCallId === "blocked-read-finalized",
+    );
+
+    expect(blockedEntry?.resultHash).toMatch(/^error:/);
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("emits warnings for separate browser search storms within the same session", async () => {
+    await withToolLoopEvents(async (emitted) => {
+      const { tool, paramsForQuery } = createBrowserSearchFixture();
+
+      for (let i = 0; i < BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        await tool.execute(`browser-search-first-${i}`, paramsForQuery(`first issue ${i}`));
+      }
+      await tool.execute(
+        `browser-search-first-${BROWSER_SEARCH_WARNING_THRESHOLD}`,
+        paramsForQuery(`first issue ${BROWSER_SEARCH_WARNING_THRESHOLD}`),
+      );
+
+      await tool.execute("browser-search-reset-0", paramsForQuery("steady follow-up"));
+      await tool.execute("browser-search-reset-1", paramsForQuery("steady follow-up"));
+
+      for (let i = 0; i < BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        await tool.execute(`browser-search-second-${i}`, paramsForQuery(`second issue ${i}`));
+      }
+      await tool.execute(
+        `browser-search-second-${BROWSER_SEARCH_WARNING_THRESHOLD}`,
+        paramsForQuery(`second issue ${BROWSER_SEARCH_WARNING_THRESHOLD}`),
+      );
+
+      const browserWarns = emitted.filter(
+        (evt) => evt.level === "warning" && evt.detector === "browser_search_storm",
+      );
+      expect(browserWarns).toHaveLength(2);
+      expect(browserWarns.map((evt) => evt.count)).toEqual([
+        BROWSER_SEARCH_WARNING_THRESHOLD,
+        BROWSER_SEARCH_WARNING_THRESHOLD,
+      ]);
+    });
+  });
+
+  it("blocks browser search storms at critical threshold and emits critical diagnostic events", async () => {
+    await withToolLoopEvents(async (emitted) => {
+      const { tool, paramsForQuery } = createBrowserSearchFixture();
+
+      for (let i = 0; i < BROWSER_SEARCH_CRITICAL_THRESHOLD; i += 1) {
+        await tool.execute(
+          `browser-search-critical-${i}`,
+          paramsForQuery(`openclaw fix ${i}`, i % 2 === 0 ? "www.google.com" : "www.bing.com"),
+          undefined,
+          undefined,
+        );
+      }
+
+      await expect(
+        tool.execute(
+          `browser-search-critical-${BROWSER_SEARCH_CRITICAL_THRESHOLD}`,
+          paramsForQuery(`openclaw fix ${BROWSER_SEARCH_CRITICAL_THRESHOLD}`, "www.bing.com"),
+          undefined,
+          undefined,
+        ),
+      ).rejects.toThrow("CRITICAL");
+
+      const loopEvent = emitted.at(-1);
+      expectCriticalLoopEvent(loopEvent, {
+        detector: "browser_search_storm",
+        toolName: "browser",
+        count: BROWSER_SEARCH_CRITICAL_THRESHOLD,
+      });
+    });
   });
 
   it("keeps generic repeated calls warn-only below global breaker", async () => {

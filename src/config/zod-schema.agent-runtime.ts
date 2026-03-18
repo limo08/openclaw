@@ -455,9 +455,13 @@ const ToolLoopDetectionDetectorSchema = z
     genericRepeat: z.boolean().optional(),
     knownPollNoProgress: z.boolean().optional(),
     pingPong: z.boolean().optional(),
+    browserSearchStorm: z.boolean().optional(),
   })
   .strict()
   .optional();
+
+const DEFAULT_BROWSER_SEARCH_WARNING_THRESHOLD = 4;
+const DEFAULT_BROWSER_SEARCH_CRITICAL_THRESHOLD = 8;
 
 const ToolLoopDetectionSchema = z
   .object({
@@ -465,6 +469,16 @@ const ToolLoopDetectionSchema = z
     historySize: z.number().int().positive().optional(),
     warningThreshold: z.number().int().positive().optional(),
     criticalThreshold: z.number().int().positive().optional(),
+    browserSearchWarningThreshold: z
+      .number()
+      .int()
+      .min(2, "tools.loopDetection.browserSearchWarningThreshold must be at least 2.")
+      .optional(),
+    browserSearchCriticalThreshold: z
+      .number()
+      .int()
+      .min(2, "tools.loopDetection.browserSearchCriticalThreshold must be at least 2.")
+      .optional(),
     globalCircuitBreakerThreshold: z.number().int().positive().optional(),
     detectors: ToolLoopDetectionDetectorSchema,
   })
@@ -479,6 +493,27 @@ const ToolLoopDetectionSchema = z
         code: z.ZodIssueCode.custom,
         path: ["criticalThreshold"],
         message: "tools.loopDetection.warningThreshold must be lower than criticalThreshold.",
+      });
+    }
+    if (
+      (value.browserSearchWarningThreshold ?? DEFAULT_BROWSER_SEARCH_WARNING_THRESHOLD) >=
+      (value.browserSearchCriticalThreshold ?? DEFAULT_BROWSER_SEARCH_CRITICAL_THRESHOLD)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path:
+          value.browserSearchCriticalThreshold !== undefined ||
+          value.browserSearchWarningThreshold === undefined
+            ? ["browserSearchCriticalThreshold"]
+            : ["browserSearchWarningThreshold"],
+        message:
+          value.browserSearchCriticalThreshold === undefined &&
+          value.browserSearchWarningThreshold !== undefined
+            ? `tools.loopDetection.browserSearchWarningThreshold must be lower than the effective browserSearchCriticalThreshold (${DEFAULT_BROWSER_SEARCH_CRITICAL_THRESHOLD}).`
+            : value.browserSearchWarningThreshold === undefined &&
+                value.browserSearchCriticalThreshold !== undefined
+              ? `tools.loopDetection.browserSearchCriticalThreshold must be higher than the effective browserSearchWarningThreshold (${DEFAULT_BROWSER_SEARCH_WARNING_THRESHOLD}).`
+              : "tools.loopDetection.browserSearchWarningThreshold must be lower than browserSearchCriticalThreshold.",
       });
     }
     if (

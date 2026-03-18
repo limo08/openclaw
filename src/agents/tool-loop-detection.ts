@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
-import type { SessionState } from "../logging/diagnostic-session-state.js";
+import type { SessionState, ToolCallRecord } from "../logging/diagnostic-session-state.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { isPlainObject } from "../utils.js";
 
@@ -10,7 +10,8 @@ export type LoopDetectorKind =
   | "generic_repeat"
   | "known_poll_no_progress"
   | "global_circuit_breaker"
-  | "ping_pong";
+  | "ping_pong"
+  | "browser_search_storm";
 
 export type LoopDetectionResult =
   | { stuck: false }
@@ -27,17 +28,22 @@ export type LoopDetectionResult =
 export const TOOL_CALL_HISTORY_SIZE = 30;
 export const WARNING_THRESHOLD = 10;
 export const CRITICAL_THRESHOLD = 20;
+export const BROWSER_SEARCH_WARNING_THRESHOLD = 4;
+export const BROWSER_SEARCH_CRITICAL_THRESHOLD = 8;
 export const GLOBAL_CIRCUIT_BREAKER_THRESHOLD = 30;
 const DEFAULT_LOOP_DETECTION_CONFIG = {
   enabled: false,
   historySize: TOOL_CALL_HISTORY_SIZE,
   warningThreshold: WARNING_THRESHOLD,
   criticalThreshold: CRITICAL_THRESHOLD,
+  browserSearchWarningThreshold: BROWSER_SEARCH_WARNING_THRESHOLD,
+  browserSearchCriticalThreshold: BROWSER_SEARCH_CRITICAL_THRESHOLD,
   globalCircuitBreakerThreshold: GLOBAL_CIRCUIT_BREAKER_THRESHOLD,
   detectors: {
     genericRepeat: true,
     knownPollNoProgress: true,
     pingPong: true,
+    browserSearchStorm: true,
   },
 };
 
@@ -46,11 +52,14 @@ type ResolvedLoopDetectionConfig = {
   historySize: number;
   warningThreshold: number;
   criticalThreshold: number;
+  browserSearchWarningThreshold: number;
+  browserSearchCriticalThreshold: number;
   globalCircuitBreakerThreshold: number;
   detectors: {
     genericRepeat: boolean;
     knownPollNoProgress: boolean;
     pingPong: boolean;
+    browserSearchStorm: boolean;
   };
 };
 
@@ -70,6 +79,14 @@ function resolveLoopDetectionConfig(config?: ToolLoopDetectionConfig): ResolvedL
     config?.criticalThreshold,
     DEFAULT_LOOP_DETECTION_CONFIG.criticalThreshold,
   );
+  let browserSearchWarningThreshold = asPositiveInt(
+    config?.browserSearchWarningThreshold,
+    DEFAULT_LOOP_DETECTION_CONFIG.browserSearchWarningThreshold,
+  );
+  let browserSearchCriticalThreshold = asPositiveInt(
+    config?.browserSearchCriticalThreshold,
+    DEFAULT_LOOP_DETECTION_CONFIG.browserSearchCriticalThreshold,
+  );
   let globalCircuitBreakerThreshold = asPositiveInt(
     config?.globalCircuitBreakerThreshold,
     DEFAULT_LOOP_DETECTION_CONFIG.globalCircuitBreakerThreshold,
@@ -77,6 +94,9 @@ function resolveLoopDetectionConfig(config?: ToolLoopDetectionConfig): ResolvedL
 
   if (criticalThreshold <= warningThreshold) {
     criticalThreshold = warningThreshold + 1;
+  }
+  if (browserSearchCriticalThreshold <= browserSearchWarningThreshold) {
+    browserSearchCriticalThreshold = browserSearchWarningThreshold + 1;
   }
   if (globalCircuitBreakerThreshold <= criticalThreshold) {
     globalCircuitBreakerThreshold = criticalThreshold + 1;
@@ -87,6 +107,8 @@ function resolveLoopDetectionConfig(config?: ToolLoopDetectionConfig): ResolvedL
     historySize: asPositiveInt(config?.historySize, DEFAULT_LOOP_DETECTION_CONFIG.historySize),
     warningThreshold,
     criticalThreshold,
+    browserSearchWarningThreshold,
+    browserSearchCriticalThreshold,
     globalCircuitBreakerThreshold,
     detectors: {
       genericRepeat:
@@ -95,6 +117,9 @@ function resolveLoopDetectionConfig(config?: ToolLoopDetectionConfig): ResolvedL
         config?.detectors?.knownPollNoProgress ??
         DEFAULT_LOOP_DETECTION_CONFIG.detectors.knownPollNoProgress,
       pingPong: config?.detectors?.pingPong ?? DEFAULT_LOOP_DETECTION_CONFIG.detectors.pingPong,
+      browserSearchStorm:
+        config?.detectors?.browserSearchStorm ??
+        DEFAULT_LOOP_DETECTION_CONFIG.detectors.browserSearchStorm,
     },
   };
 }
@@ -142,6 +167,319 @@ function stableStringifyFallback(value: unknown): string {
     }
     return Object.prototype.toString.call(value);
   }
+}
+
+type BrowserSearchMatcher = {
+  hostPattern: RegExp;
+  pathPattern: RegExp;
+  queryParam: string;
+};
+
+type BrowserSearchLoopRecord = NonNullable<
+  NonNullable<ToolCallRecord["loopHint"]>["browserSearch"]
+>;
+
+type BrowserSearchHistoryEntry = BrowserSearchLoopRecord & {
+  timestamp: number;
+};
+
+type BrowserTargetSearchContext = {
+  search?: BrowserSearchLoopRecord;
+  draftQueryHash?: string;
+};
+
+const GOOGLE_SEARCH_HOST_PATTERN = /(^|\.)google\.(?:com|[a-z]{2,3}|co\.[a-z]{2}|com\.[a-z]{2})$/;
+const YANDEX_SEARCH_HOST_PATTERN = /(^|\.)yandex\.(?:com|ru|by|kz|ua|net)$/;
+
+const BROWSER_SEARCH_MATCHERS: BrowserSearchMatcher[] = [
+  { hostPattern: GOOGLE_SEARCH_HOST_PATTERN, pathPattern: /^\/search$/, queryParam: "q" },
+  { hostPattern: /(^|\.)bing\.com$/, pathPattern: /^\/search$/, queryParam: "q" },
+  { hostPattern: /(^|\.)search\.brave\.com$/, pathPattern: /^\/search$/, queryParam: "q" },
+  { hostPattern: /(^|\.)duckduckgo\.com$/, pathPattern: /^\/(?:html\/)?$/, queryParam: "q" },
+  { hostPattern: /(^|\.)baidu\.com$/, pathPattern: /^\/s$/, queryParam: "wd" },
+  { hostPattern: /(^|\.)yahoo\.com$/, pathPattern: /^\/search$/, queryParam: "p" },
+  { hostPattern: YANDEX_SEARCH_HOST_PATTERN, pathPattern: /^\/search\/?$/, queryParam: "text" },
+];
+
+function normalizeHostname(hostname: string): string {
+  const lowered = hostname.toLowerCase();
+  return lowered.startsWith("www.") ? lowered.slice(4) : lowered;
+}
+
+function extractBrowserActKind(params: Record<string, unknown>): string | undefined {
+  const request = isPlainObject(params.request) ? params.request : undefined;
+  if (typeof request?.kind === "string") {
+    return request.kind;
+  }
+  return typeof params.kind === "string" ? params.kind : undefined;
+}
+
+function extractBrowserActStringParam(
+  params: Record<string, unknown>,
+  key: "key" | "targetId" | "text",
+): string | undefined {
+  const request = isPlainObject(params.request) ? params.request : undefined;
+  const requestValue = request?.[key];
+  if (typeof requestValue === "string") {
+    const trimmed = requestValue.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  const value = params[key];
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function extractBrowserActBooleanParam(
+  params: Record<string, unknown>,
+  key: "submit",
+): boolean | undefined {
+  const request = isPlainObject(params.request) ? params.request : undefined;
+  const requestValue = request?.[key];
+  if (typeof requestValue === "boolean") {
+    return requestValue;
+  }
+  return typeof params[key] === "boolean" ? params[key] : undefined;
+}
+
+function isBrowserNavigationBoundary(toolName: string, params: unknown): boolean {
+  if (toolName !== "browser" || !isPlainObject(params)) {
+    return false;
+  }
+  const action = params.action;
+  if (action === "open" || action === "navigate") {
+    return true;
+  }
+  return action === "act" && extractBrowserActKind(params) === "click";
+}
+
+function extractBrowserNavigationUrl(toolName: string, params: unknown): URL | undefined {
+  if (toolName !== "browser" || !isPlainObject(params)) {
+    return undefined;
+  }
+  const action = params.action;
+  if (action !== "open" && action !== "navigate") {
+    return undefined;
+  }
+
+  const rawUrl =
+    typeof params.targetUrl === "string"
+      ? params.targetUrl
+      : typeof params.url === "string"
+        ? params.url
+        : undefined;
+  if (!rawUrl) {
+    return undefined;
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return undefined;
+  }
+
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    return undefined;
+  }
+
+  return parsedUrl;
+}
+
+function extractBrowserResultDetails(result: unknown): Record<string, unknown> | undefined {
+  if (!isPlainObject(result) || !isPlainObject(result.details)) {
+    return undefined;
+  }
+  return result.details;
+}
+
+function extractBrowserResultTargetId(result: unknown): string | undefined {
+  const details = extractBrowserResultDetails(result);
+  if (typeof details?.targetId !== "string") {
+    return undefined;
+  }
+  const trimmed = details.targetId.trim();
+  return trimmed || undefined;
+}
+
+function extractBrowserTargetId(
+  toolName: string,
+  params: unknown,
+  result?: unknown,
+): string | undefined {
+  if (toolName !== "browser" || !isPlainObject(params)) {
+    return undefined;
+  }
+  return extractBrowserActStringParam(params, "targetId") ?? extractBrowserResultTargetId(result);
+}
+
+function hashBrowserSearchQuery(query: string): string | undefined {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return digestStable(trimmed.toLowerCase());
+}
+
+function extractBrowserSearchLoopHintFromUrl(parsedUrl: URL): BrowserSearchLoopRecord | undefined {
+  const host = normalizeHostname(parsedUrl.hostname);
+  const path = parsedUrl.pathname.toLowerCase();
+  for (const matcher of BROWSER_SEARCH_MATCHERS) {
+    if (!matcher.hostPattern.test(host) || !matcher.pathPattern.test(path)) {
+      continue;
+    }
+    const rawQuery = parsedUrl.searchParams.get(matcher.queryParam)?.trim();
+    if (!rawQuery) {
+      continue;
+    }
+    return {
+      host,
+      queryHash: digestStable(rawQuery.toLowerCase()),
+    };
+  }
+
+  return undefined;
+}
+
+function isSuccessfulToolCallRecord(record: ToolCallRecord): boolean {
+  return typeof record.resultHash === "string" && !record.resultHash.startsWith("error:");
+}
+
+function findRecentBrowserTargetContext(
+  history: ToolCallRecord[] | undefined,
+  targetId: string,
+): BrowserTargetSearchContext {
+  if (!history?.length) {
+    return {};
+  }
+
+  const context: BrowserTargetSearchContext = {};
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const record = history[i];
+    if (!record || !isSuccessfulToolCallRecord(record)) {
+      continue;
+    }
+    const loopHint = record.loopHint;
+    if (!loopHint || loopHint.browserTargetId !== targetId) {
+      continue;
+    }
+    if (loopHint.browserNavigation && !loopHint.browserSearch) {
+      break;
+    }
+    if (!context.draftQueryHash && loopHint.browserSearchDraftQueryHash) {
+      context.draftQueryHash = loopHint.browserSearchDraftQueryHash;
+    }
+    if (!context.search && loopHint.browserSearch) {
+      context.search = loopHint.browserSearch;
+      if (context.draftQueryHash) {
+        break;
+      }
+    }
+  }
+
+  return context;
+}
+
+function extractBrowserSearchDraftQueryHash(toolName: string, params: unknown): string | undefined {
+  if (toolName !== "browser" || !isPlainObject(params) || params.action !== "act") {
+    return undefined;
+  }
+  if (extractBrowserActKind(params) !== "type") {
+    return undefined;
+  }
+  const text = extractBrowserActStringParam(params, "text");
+  return text ? hashBrowserSearchQuery(text) : undefined;
+}
+
+function extractBrowserSubmittedSearchLoopHint(
+  toolName: string,
+  params: unknown,
+  history: ToolCallRecord[] | undefined,
+): BrowserSearchLoopRecord | undefined {
+  if (toolName !== "browser" || !isPlainObject(params) || params.action !== "act") {
+    return undefined;
+  }
+
+  const actKind = extractBrowserActKind(params);
+  if (actKind !== "type" && actKind !== "press") {
+    return undefined;
+  }
+
+  const targetId = extractBrowserTargetId(toolName, params);
+  if (!targetId) {
+    return undefined;
+  }
+
+  const context = findRecentBrowserTargetContext(history, targetId);
+  const host = context.search?.host;
+  if (!host) {
+    return undefined;
+  }
+
+  if (actKind === "type") {
+    if (extractBrowserActBooleanParam(params, "submit") !== true) {
+      return undefined;
+    }
+    const text = extractBrowserActStringParam(params, "text");
+    const queryHash = text ? hashBrowserSearchQuery(text) : undefined;
+    return queryHash ? { host, queryHash } : undefined;
+  }
+
+  const key = extractBrowserActStringParam(params, "key")?.toLowerCase();
+  if (key !== "enter") {
+    return undefined;
+  }
+  const queryHash = context.draftQueryHash ?? context.search?.queryHash;
+  return queryHash ? { host, queryHash } : undefined;
+}
+
+function extractBrowserSearchLoopHint(
+  toolName: string,
+  params: unknown,
+  history?: ToolCallRecord[],
+): BrowserSearchLoopRecord | undefined {
+  const parsedUrl = extractBrowserNavigationUrl(toolName, params);
+  if (parsedUrl) {
+    return extractBrowserSearchLoopHintFromUrl(parsedUrl);
+  }
+  return extractBrowserSubmittedSearchLoopHint(toolName, params, history);
+}
+
+function extractToolCallLoopHint(
+  toolName: string,
+  params: unknown,
+  options?: { browserSearchStormEnabled?: boolean; history?: ToolCallRecord[]; result?: unknown },
+): ToolCallRecord["loopHint"] {
+  if (options?.browserSearchStormEnabled === false) {
+    return undefined;
+  }
+
+  const browserSearch = extractBrowserSearchLoopHint(toolName, params, options?.history);
+  const browserNavigation = isBrowserNavigationBoundary(toolName, params) || Boolean(browserSearch);
+  const browserTargetId = extractBrowserTargetId(toolName, params, options?.result);
+  const browserSearchDraftQueryHash = extractBrowserSearchDraftQueryHash(toolName, params);
+  if (!browserNavigation && !browserTargetId && !browserSearchDraftQueryHash) {
+    return undefined;
+  }
+
+  const loopHint: NonNullable<ToolCallRecord["loopHint"]> = {};
+  if (browserNavigation) {
+    loopHint.browserNavigation = true;
+  }
+  if (browserSearch) {
+    loopHint.browserSearch = browserSearch;
+  }
+  if (browserSearchDraftQueryHash) {
+    loopHint.browserSearchDraftQueryHash = browserSearchDraftQueryHash;
+  }
+  if (browserTargetId) {
+    loopHint.browserTargetId = browserTargetId;
+  }
+  return loopHint;
 }
 
 function isKnownPollToolCall(toolName: string, params: unknown): boolean {
@@ -365,6 +703,63 @@ function canonicalPairKey(signatureA: string, signatureB: string): string {
   return [signatureA, signatureB].toSorted().join("|");
 }
 
+function browserSearchSignature(search: BrowserSearchLoopRecord): string {
+  return `${search.host}:${search.queryHash}`;
+}
+
+function getBrowserSearchStormStats(
+  history: ToolCallRecord[],
+  currentSearch: BrowserSearchLoopRecord,
+): {
+  count: number;
+  uniqueHosts: number;
+  uniqueQueries: number;
+  warningKey: string;
+} {
+  const activeStreak: BrowserSearchHistoryEntry[] = [];
+  const seenSignatures = new Set<string>([browserSearchSignature(currentSearch)]);
+  let boundaryTimestamp: number | undefined;
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const record = history[i];
+    if (!record) {
+      continue;
+    }
+    const loopHint = record.loopHint;
+    if (loopHint?.browserNavigation && !loopHint.browserSearch) {
+      boundaryTimestamp = record.timestamp;
+      break;
+    }
+    const search = loopHint?.browserSearch;
+    if (!search) {
+      continue;
+    }
+    const signature = browserSearchSignature(search);
+    if (seenSignatures.has(signature)) {
+      boundaryTimestamp = record.timestamp;
+      break;
+    }
+    seenSignatures.add(signature);
+    activeStreak.unshift({ ...search, timestamp: record.timestamp });
+  }
+
+  const oldestActiveSearch = activeStreak[0];
+  const uniqueHosts = new Set(activeStreak.map((search) => search.host));
+  uniqueHosts.add(currentSearch.host);
+  const uniqueQueries = new Set(activeStreak.map((search) => search.queryHash));
+  uniqueQueries.add(currentSearch.queryHash);
+
+  return {
+    count: activeStreak.length,
+    uniqueHosts: uniqueHosts.size,
+    uniqueQueries: uniqueQueries.size,
+    warningKey: boundaryTimestamp
+      ? `browser-search:storm:after:${boundaryTimestamp}`
+      : oldestActiveSearch
+        ? `browser-search:storm:from:${oldestActiveSearch.timestamp}:${oldestActiveSearch.host}:${oldestActiveSearch.queryHash}`
+        : `browser-search:storm:${currentSearch.host}:${currentSearch.queryHash}`,
+  };
+}
+
 /**
  * Detect if an agent is stuck in a repetitive tool call loop.
  * Checks if the same tool+params combination has been called excessively.
@@ -385,6 +780,9 @@ export function detectToolCallLoop(
   const noProgressStreak = noProgress.count;
   const knownPollTool = isKnownPollToolCall(toolName, params);
   const pingPong = getPingPongStreak(history, currentHash);
+  const browserSearch = resolvedConfig.detectors.browserSearchStorm
+    ? extractBrowserSearchLoopHint(toolName, params, history)
+    : undefined;
 
   if (noProgressStreak >= resolvedConfig.globalCircuitBreakerThreshold) {
     log.error(
@@ -470,6 +868,64 @@ export function detectToolCallLoop(
     };
   }
 
+  if (browserSearch) {
+    const browserSearchStats = getBrowserSearchStormStats(history, browserSearch);
+    // TODO: This detector only sees browser-search entries still present in the bounded history
+    // window, so interspersed non-search calls can evict older search hops before thresholds trip
+    // and may eventually shift the warning-dedup boundary for a very long-lived storm.
+    // Restrict this detector to the active streak of changing searches. Once the agent settles
+    // into repeating the same search again, or opens a non-search page and starts making
+    // progress, the storm streak resets to avoid blocking follow-up work solely because older
+    // variety is still present elsewhere in the bounded history.
+    const hasVariedSearches =
+      browserSearchStats.uniqueQueries >= 2 || browserSearchStats.uniqueHosts >= 2;
+    // Anchor warning suppression to the streak boundary when possible so separate storms in one
+    // session do not suppress each other and bounded-history eviction is less likely to re-emit
+    // warnings for the same ongoing storm. With the default 4/8 browser-search thresholds this
+    // detector only emits one bucket-0 warning before the critical branch takes over.
+    const browserSearchWarningKey = browserSearchStats.warningKey;
+    if (
+      hasVariedSearches &&
+      browserSearchStats.count >= resolvedConfig.browserSearchCriticalThreshold
+    ) {
+      log.error(
+        `Critical browser search storm detected: priorSearchCount=${browserSearchStats.count}`,
+      );
+      return {
+        stuck: true,
+        level: "critical",
+        detector: "browser_search_storm",
+        count: browserSearchStats.count,
+        message: `CRITICAL: Detected ${browserSearchStats.count} prior browser search-page opens in the active streak across changing queries or search engines. This current call continues that browser search storm, so session execution is blocked to prevent runaway browsing and network amplification.`,
+        warningKey: browserSearchWarningKey,
+      };
+    }
+
+    if (
+      hasVariedSearches &&
+      browserSearchStats.count >= resolvedConfig.browserSearchWarningThreshold
+    ) {
+      log.warn(`Browser search storm warning: priorSearchCount=${browserSearchStats.count}`);
+      return {
+        stuck: true,
+        level: "warning",
+        detector: "browser_search_storm",
+        count: browserSearchStats.count,
+        message: `WARNING: Detected ${browserSearchStats.count} prior browser search-page opens in the active streak across changing queries or search engines. The current call continues that browser search storm; stop broad browser searching and either narrow the task, use web_search/web_fetch, or report failure.`,
+        warningKey: browserSearchWarningKey,
+      };
+    }
+
+    if (
+      !hasVariedSearches &&
+      browserSearchStats.count >= resolvedConfig.browserSearchWarningThreshold
+    ) {
+      log.debug(
+        `Browser search detector idle: active streak lacks query/engine variety count=${browserSearchStats.count} host=${browserSearch.host}`,
+      );
+    }
+  }
+
   // Generic detector: warn-only for repeated identical calls.
   const recentCount = history.filter(
     (h) => h.toolName === toolName && h.argsHash === currentHash,
@@ -504,6 +960,7 @@ export function recordToolCall(
   params: unknown,
   toolCallId?: string,
   config?: ToolLoopDetectionConfig,
+  runId?: string,
 ): void {
   const resolvedConfig = resolveLoopDetectionConfig(config);
   if (!state.toolCallHistory) {
@@ -514,6 +971,11 @@ export function recordToolCall(
     toolName,
     argsHash: hashToolCall(toolName, params),
     toolCallId,
+    runId,
+    loopHint: extractToolCallLoopHint(toolName, params, {
+      browserSearchStormEnabled: resolvedConfig.detectors.browserSearchStorm,
+      history: state.toolCallHistory,
+    }),
     timestamp: Date.now(),
   });
 
@@ -531,6 +993,7 @@ export function recordToolCallOutcome(
     toolName: string;
     toolParams: unknown;
     toolCallId?: string;
+    runId?: string;
     result?: unknown;
     error?: unknown;
     config?: ToolLoopDetectionConfig;
@@ -552,21 +1015,41 @@ export function recordToolCallOutcome(
   }
 
   const argsHash = hashToolCall(params.toolName, params.toolParams);
+  const loopHint = extractToolCallLoopHint(params.toolName, params.toolParams, {
+    browserSearchStormEnabled: resolvedConfig.detectors.browserSearchStorm,
+    history: state.toolCallHistory,
+    result: params.result,
+  });
   let matched = false;
   for (let i = state.toolCallHistory.length - 1; i >= 0; i -= 1) {
     const call = state.toolCallHistory[i];
     if (!call) {
       continue;
     }
-    if (params.toolCallId && call.toolCallId !== params.toolCallId) {
-      continue;
-    }
-    if (call.toolName !== params.toolName || call.argsHash !== argsHash) {
+    if (call.toolName !== params.toolName) {
       continue;
     }
     if (call.resultHash !== undefined) {
       continue;
     }
+    if ((call.runId ?? undefined) !== (params.runId ?? undefined)) {
+      continue;
+    }
+    if (params.toolCallId && call.toolCallId === params.toolCallId) {
+      call.argsHash = argsHash;
+      call.runId = params.runId;
+      call.loopHint = loopHint;
+      call.resultHash = resultHash;
+      matched = true;
+      break;
+    }
+    if (params.toolCallId && call.toolCallId !== params.toolCallId) {
+      continue;
+    }
+    if (call.argsHash !== argsHash) {
+      continue;
+    }
+    call.loopHint = loopHint;
     call.resultHash = resultHash;
     matched = true;
     break;
@@ -577,7 +1060,9 @@ export function recordToolCallOutcome(
       toolName: params.toolName,
       argsHash,
       toolCallId: params.toolCallId,
+      runId: params.runId,
       resultHash,
+      loopHint,
       timestamp: Date.now(),
     });
   }

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
 import type { SessionState } from "../logging/diagnostic-session-state.js";
 import {
+  BROWSER_SEARCH_CRITICAL_THRESHOLD,
+  BROWSER_SEARCH_WARNING_THRESHOLD,
   CRITICAL_THRESHOLD,
   GLOBAL_CIRCUIT_BREAKER_THRESHOLD,
   TOOL_CALL_HISTORY_SIZE,
@@ -92,6 +94,121 @@ function createPingPongFixture() {
     readParams: { path: "/a.txt" },
     listParams: { dir: "/workspace" },
   };
+}
+
+function createBrowserSearchFixture(
+  query: string,
+  host = "www.google.com",
+  options?: {
+    path?: string;
+    queryParam?: string;
+    action?: "open" | "navigate";
+    urlField?: "url" | "targetUrl";
+    targetId?: string;
+  },
+) {
+  const path = options?.path ?? "/search";
+  const queryParam = options?.queryParam ?? "q";
+  const url = `https://${host}${path}?${queryParam}=${encodeURIComponent(query)}`;
+  const action = options?.action ?? "open";
+  const urlField = options?.urlField ?? "url";
+  return {
+    toolName: "browser",
+    params: { action, [urlField]: url },
+    result: {
+      content: [{ type: "text", text: `results for ${query}` }],
+      details: {
+        url,
+        ...(options?.targetId ? { targetId: options.targetId } : {}),
+      },
+    },
+  } as const;
+}
+
+function createBrowserPageFixture(url: string) {
+  return {
+    toolName: "browser",
+    params: { action: "open", url },
+    result: {
+      content: [{ type: "text", text: `opened ${url}` }],
+      details: { url },
+    },
+  } as const;
+}
+
+function createBrowserActClickFixture(ref = "1") {
+  return {
+    toolName: "browser",
+    params: { action: "act", request: { kind: "click", ref } },
+    result: {
+      content: [{ type: "text", text: `clicked ${ref}` }],
+      details: { ok: true },
+    },
+  } as const;
+}
+
+function createBrowserActTypeFixture(
+  query: string,
+  targetId = "tab-search",
+  options?: { submit?: boolean },
+) {
+  return {
+    toolName: "browser",
+    params: {
+      action: "act",
+      request: {
+        kind: "type",
+        targetId,
+        ref: "qbox",
+        text: query,
+        ...(options?.submit !== undefined ? { submit: options.submit } : {}),
+      },
+    },
+    result: {
+      content: [{ type: "text", text: `typed ${query}` }],
+      details: { ok: true, targetId },
+    },
+  } as const;
+}
+
+function createBrowserActPressFixture(key = "Enter", targetId = "tab-search") {
+  return {
+    toolName: "browser",
+    params: {
+      action: "act",
+      request: {
+        kind: "press",
+        targetId,
+        key,
+      },
+    },
+    result: {
+      content: [{ type: "text", text: `pressed ${key}` }],
+      details: { ok: true, targetId },
+    },
+  } as const;
+}
+
+function recordSuccessfulBrowserSearchCalls(params: {
+  state: SessionState;
+  queries: string[];
+  hostAtIndex?: (index: number) => string;
+  startIndex?: number;
+}) {
+  const startIndex = params.startIndex ?? 0;
+  for (let i = 0; i < params.queries.length; i += 1) {
+    const fixture = createBrowserSearchFixture(
+      params.queries[i] ?? `query-${i}`,
+      params.hostAtIndex?.(i) ?? "www.google.com",
+    );
+    recordSuccessfulCall(
+      params.state,
+      fixture.toolName,
+      fixture.params,
+      fixture.result,
+      startIndex + i,
+    );
+  }
 }
 
 function detectLoopAfterRepeatedCalls(params: {
@@ -245,6 +362,117 @@ describe("tool-loop-detection", () => {
 
       expect(state.toolCallHistory).toHaveLength(4);
       expect(state.toolCallHistory?.[0]?.argsHash).toBe(hashToolCall("tool", { iteration: 6 }));
+    });
+
+    it("skips browser loop hints when browserSearchStorm is disabled", () => {
+      const state = createState();
+
+      recordToolCall(
+        state,
+        "browser",
+        { action: "open", url: "https://www.google.com/search?q=openclaw" },
+        "browser-disabled",
+        {
+          enabled: true,
+          detectors: {
+            browserSearchStorm: false,
+          },
+        },
+      );
+
+      expect(state.toolCallHistory?.[0]?.loopHint).toBeUndefined();
+    });
+  });
+
+  describe("recordToolCallOutcome", () => {
+    it("skips browser loop hints when browserSearchStorm is disabled", () => {
+      const state = createState();
+
+      recordToolCallOutcome(state, {
+        toolName: "browser",
+        toolParams: { action: "open", url: "https://www.google.com/search?q=openclaw" },
+        toolCallId: "browser-outcome-disabled",
+        result: {
+          content: [{ type: "text", text: "results" }],
+          details: { ok: true },
+        },
+        config: {
+          enabled: true,
+          detectors: {
+            browserSearchStorm: false,
+          },
+        },
+      });
+
+      expect(state.toolCallHistory?.[0]?.loopHint).toBeUndefined();
+    });
+
+    it("updates the pre-hook browser entry instead of appending a second adjusted search", () => {
+      const state = createState();
+      const toolCallId = "browser-adjusted";
+      const originalParams = {
+        action: "open",
+        url: "https://www.google.com/search?q=openclaw",
+      };
+      const adjustedParams = {
+        action: "open",
+        url: "https://www.google.com/search?q=openclaw+bug",
+      };
+
+      recordToolCall(state, "browser", originalParams, toolCallId, enabledLoopDetectionConfig);
+      const originalQueryHash = state.toolCallHistory?.[0]?.loopHint?.browserSearch?.queryHash;
+
+      recordToolCallOutcome(state, {
+        toolName: "browser",
+        toolParams: adjustedParams,
+        toolCallId,
+        result: {
+          content: [{ type: "text", text: "results" }],
+          details: { ok: true },
+        },
+        config: enabledLoopDetectionConfig,
+      });
+
+      expect(state.toolCallHistory).toHaveLength(1);
+      expect(state.toolCallHistory?.[0]?.argsHash).toBe(hashToolCall("browser", adjustedParams));
+      expect(state.toolCallHistory?.[0]?.loopHint?.browserSearch?.queryHash).not.toBe(
+        originalQueryHash,
+      );
+      expect(state.toolCallHistory?.[0]?.resultHash).toBeDefined();
+    });
+
+    it("does not rewrite unfinished entries when toolCallId collides across runs", () => {
+      const state = createState();
+      const sharedToolCallId = "shared-call";
+
+      recordToolCall(
+        state,
+        "read",
+        { path: "/run-a.txt" },
+        sharedToolCallId,
+        enabledLoopDetectionConfig,
+        "run-a",
+      );
+
+      recordToolCallOutcome(state, {
+        toolName: "read",
+        toolParams: { path: "/run-b.txt" },
+        toolCallId: sharedToolCallId,
+        runId: "run-b",
+        result: {
+          content: [{ type: "text", text: "run b output" }],
+          details: { ok: true },
+        },
+        config: enabledLoopDetectionConfig,
+      });
+
+      expect(state.toolCallHistory).toHaveLength(2);
+      const runAEntry = state.toolCallHistory?.find((call) => call.runId === "run-a");
+      const runBEntry = state.toolCallHistory?.find((call) => call.runId === "run-b");
+      expect(runAEntry?.argsHash).toBe(hashToolCall("read", { path: "/run-a.txt" }));
+      expect(runAEntry?.resultHash).toBeUndefined();
+      expect(runBEntry?.argsHash).toBe(hashToolCall("read", { path: "/run-b.txt" }));
+      expect(runBEntry?.resultHash).toBeDefined();
     });
   });
 
@@ -425,6 +653,429 @@ describe("tool-loop-detection", () => {
       }
 
       const loopResult = detectToolCallLoop(state, "process", params, enabledLoopDetectionConfig);
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("warns on browser search storms across changing queries", () => {
+      const state = createState();
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: Array.from(
+          { length: BROWSER_SEARCH_WARNING_THRESHOLD },
+          (_, index) => `openclaw issue ${index}`,
+        ),
+      });
+
+      const current = createBrowserSearchFixture("openclaw issue next");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(true);
+      if (loopResult.stuck) {
+        expect(loopResult.level).toBe("warning");
+        expect(loopResult.detector).toBe("browser_search_storm");
+        expect(loopResult.count).toBe(BROWSER_SEARCH_WARNING_THRESHOLD);
+        expect(loopResult.message).toContain("prior browser search-page opens");
+      }
+    });
+
+    it("does not warn on the first query change after identical history", () => {
+      const state = createState();
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: Array.from(
+          { length: BROWSER_SEARCH_WARNING_THRESHOLD },
+          () => "openclaw repeated query",
+        ),
+      });
+
+      const current = createBrowserSearchFixture("openclaw first variation");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("resets the browser search storm streak once searches settle on one query", () => {
+      const state = createState();
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: ["openclaw initial", "openclaw varied", "openclaw varied", "openclaw varied"],
+      });
+
+      const current = createBrowserSearchFixture("openclaw varied");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("resets the browser search storm streak after opening a non-search page", () => {
+      const state = createState();
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: ["openclaw issue 0", "openclaw issue 1", "openclaw issue 2", "openclaw issue 3"],
+      });
+
+      const openedResultPage = createBrowserPageFixture("https://example.com/openclaw/result");
+      recordSuccessfulCall(
+        state,
+        openedResultPage.toolName,
+        openedResultPage.params,
+        openedResultPage.result,
+        4,
+      );
+
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: ["openclaw follow-up 0", "openclaw follow-up 1", "openclaw follow-up 2"],
+        startIndex: 5,
+      });
+
+      const current = createBrowserSearchFixture("openclaw follow-up next");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("resets the browser search storm streak after browser act click navigation", () => {
+      const state = createState();
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: ["openclaw issue 0", "openclaw issue 1", "openclaw issue 2", "openclaw issue 3"],
+      });
+
+      const clickedResult = createBrowserActClickFixture("5");
+      recordSuccessfulCall(
+        state,
+        clickedResult.toolName,
+        clickedResult.params,
+        clickedResult.result,
+        4,
+      );
+
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: ["openclaw follow-up 0", "openclaw follow-up 1", "openclaw follow-up 2"],
+        startIndex: 5,
+      });
+
+      const current = createBrowserSearchFixture("openclaw follow-up next");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("only counts the non-repeating active browser-search tail", () => {
+      const state = createState();
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: ["openclaw issue A", "openclaw issue B", "openclaw issue A", "openclaw issue C"],
+      });
+
+      const current = createBrowserSearchFixture("openclaw issue D");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("blocks browser search storms at critical threshold", () => {
+      const state = createState();
+      recordSuccessfulBrowserSearchCalls({
+        state,
+        queries: Array.from(
+          { length: BROWSER_SEARCH_CRITICAL_THRESHOLD },
+          (_, index) => `openclaw loop detection ${index}`,
+        ),
+        hostAtIndex: (index) => (index % 2 === 0 ? "www.google.com" : "www.bing.com"),
+      });
+
+      const current = createBrowserSearchFixture("openclaw loop detection next", "www.bing.com");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(true);
+      if (loopResult.stuck) {
+        expect(loopResult.level).toBe("critical");
+        expect(loopResult.detector).toBe("browser_search_storm");
+        expect(loopResult.count).toBe(BROWSER_SEARCH_CRITICAL_THRESHOLD);
+        expect(loopResult.message).toContain("CRITICAL");
+      }
+    });
+
+    it("matches Yandex search pages with a trailing slash", () => {
+      const state = createState();
+      for (let i = 0; i < BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        const fixture = createBrowserSearchFixture(`yandex issue ${i}`, "yandex.com", {
+          path: "/search/",
+          queryParam: "text",
+        });
+        recordSuccessfulCall(state, fixture.toolName, fixture.params, fixture.result, i);
+      }
+
+      const current = createBrowserSearchFixture("yandex issue next", "yandex.com", {
+        path: "/search/",
+        queryParam: "text",
+      });
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(true);
+      if (loopResult.stuck) {
+        expect(loopResult.detector).toBe("browser_search_storm");
+        expect(loopResult.count).toBe(BROWSER_SEARCH_WARNING_THRESHOLD);
+      }
+    });
+
+    it("matches browser search pages opened via navigate targetUrl", () => {
+      const state = createState();
+      for (let i = 0; i < BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        const fixture = createBrowserSearchFixture(`navigate issue ${i}`, "www.google.com", {
+          action: "navigate",
+          urlField: "targetUrl",
+        });
+        recordSuccessfulCall(state, fixture.toolName, fixture.params, fixture.result, i);
+      }
+
+      const current = createBrowserSearchFixture("navigate issue next", "www.google.com", {
+        action: "navigate",
+        urlField: "targetUrl",
+      });
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(true);
+      if (loopResult.stuck) {
+        expect(loopResult.detector).toBe("browser_search_storm");
+        expect(loopResult.count).toBe(BROWSER_SEARCH_WARNING_THRESHOLD);
+      }
+    });
+
+    it("matches in-tab browser search submissions via act type submit", () => {
+      const state = createState();
+      const targetId = "tab-submit";
+      const openedSearch = createBrowserSearchFixture("submit issue 0", "www.google.com", {
+        targetId,
+      });
+
+      recordSuccessfulCall(
+        state,
+        openedSearch.toolName,
+        openedSearch.params,
+        openedSearch.result,
+        0,
+      );
+
+      for (let i = 1; i < BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        const typedSearch = createBrowserActTypeFixture(`submit issue ${i}`, targetId, {
+          submit: true,
+        });
+        recordSuccessfulCall(
+          state,
+          typedSearch.toolName,
+          typedSearch.params,
+          typedSearch.result,
+          i,
+        );
+      }
+
+      const current = createBrowserActTypeFixture(
+        `submit issue ${BROWSER_SEARCH_WARNING_THRESHOLD}`,
+        targetId,
+        { submit: true },
+      );
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(true);
+      if (loopResult.stuck) {
+        expect(loopResult.level).toBe("warning");
+        expect(loopResult.detector).toBe("browser_search_storm");
+        expect(loopResult.count).toBe(BROWSER_SEARCH_WARNING_THRESHOLD);
+      }
+    });
+
+    it("matches in-tab browser search submissions via act press Enter", () => {
+      const state = createState();
+      const targetId = "tab-enter";
+      const openedSearch = createBrowserSearchFixture("enter issue 0", "www.google.com", {
+        targetId,
+      });
+      recordSuccessfulCall(
+        state,
+        openedSearch.toolName,
+        openedSearch.params,
+        openedSearch.result,
+        0,
+      );
+
+      for (let i = 1; i < BROWSER_SEARCH_WARNING_THRESHOLD; i += 1) {
+        const draft = createBrowserActTypeFixture(`enter issue ${i}`, targetId, {
+          submit: false,
+        });
+        const press = createBrowserActPressFixture("Enter", targetId);
+        recordSuccessfulCall(state, draft.toolName, draft.params, draft.result, i * 2 - 1);
+        recordSuccessfulCall(state, press.toolName, press.params, press.result, i * 2);
+      }
+
+      const currentDraft = createBrowserActTypeFixture(
+        `enter issue ${BROWSER_SEARCH_WARNING_THRESHOLD}`,
+        targetId,
+        {
+          submit: false,
+        },
+      );
+      recordSuccessfulCall(
+        state,
+        currentDraft.toolName,
+        currentDraft.params,
+        currentDraft.result,
+        BROWSER_SEARCH_WARNING_THRESHOLD * 2 - 1,
+      );
+
+      const current = createBrowserActPressFixture("Enter", targetId);
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(true);
+      if (loopResult.stuck) {
+        expect(loopResult.level).toBe("warning");
+        expect(loopResult.detector).toBe("browser_search_storm");
+        expect(loopResult.count).toBe(BROWSER_SEARCH_WARNING_THRESHOLD);
+      }
+    });
+
+    it("does not treat duckduckgo.com/html without a trailing slash as a search hop", () => {
+      const state = createState();
+      for (let i = 0; i < BROWSER_SEARCH_CRITICAL_THRESHOLD + 2; i += 1) {
+        const fixture = createBrowserSearchFixture(`duck issue ${i}`, "duckduckgo.com", {
+          path: "/html",
+          queryParam: "q",
+        });
+        recordSuccessfulCall(state, fixture.toolName, fixture.params, fixture.result, i);
+      }
+
+      const current = createBrowserSearchFixture("duck issue next", "duckduckgo.com", {
+        path: "/html",
+        queryParam: "q",
+      });
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("does not treat google.evil.com search pages as Google search hops", () => {
+      const state = createState();
+      for (let i = 0; i < BROWSER_SEARCH_CRITICAL_THRESHOLD + 2; i += 1) {
+        const fixture = createBrowserSearchFixture(`evil google issue ${i}`, "google.evil.com");
+        recordSuccessfulCall(state, fixture.toolName, fixture.params, fixture.result, i);
+      }
+
+      const current = createBrowserSearchFixture("evil google issue next", "google.evil.com");
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("does not treat yandex.evil.com search pages as Yandex search hops", () => {
+      const state = createState();
+      for (let i = 0; i < BROWSER_SEARCH_CRITICAL_THRESHOLD + 2; i += 1) {
+        const fixture = createBrowserSearchFixture(`evil yandex issue ${i}`, "yandex.evil.com", {
+          path: "/search/",
+          queryParam: "text",
+        });
+        recordSuccessfulCall(state, fixture.toolName, fixture.params, fixture.result, i);
+      }
+
+      const current = createBrowserSearchFixture("evil yandex issue next", "yandex.evil.com", {
+        path: "/search/",
+        queryParam: "text",
+      });
+      const loopResult = detectToolCallLoop(
+        state,
+        current.toolName,
+        current.params,
+        enabledLoopDetectionConfig,
+      );
+
+      expect(loopResult.stuck).toBe(false);
+    });
+
+    it("does not flag normal browser page opens as a browser search storm", () => {
+      const state = createState();
+      for (let i = 0; i < BROWSER_SEARCH_CRITICAL_THRESHOLD + 2; i += 1) {
+        recordSuccessfulCall(
+          state,
+          "browser",
+          { action: "open", url: `https://example.com/page-${i}` },
+          { content: [{ type: "text", text: `page ${i}` }], details: { ok: true } },
+          i,
+        );
+      }
+
+      const loopResult = detectToolCallLoop(
+        state,
+        "browser",
+        { action: "open", url: "https://example.com/final" },
+        enabledLoopDetectionConfig,
+      );
       expect(loopResult.stuck).toBe(false);
     });
 

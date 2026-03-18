@@ -246,6 +246,117 @@ describe("config schema", () => {
     ).toThrow();
   });
 
+  it("accepts browser search loop detection config in the runtime zod schema", () => {
+    const parsed = ToolsSchema.parse({
+      loopDetection: {
+        enabled: true,
+        browserSearchWarningThreshold: 4,
+        browserSearchCriticalThreshold: 8,
+        detectors: {
+          browserSearchStorm: true,
+        },
+      },
+    });
+
+    expect(parsed?.loopDetection).toMatchObject({
+      enabled: true,
+      browserSearchWarningThreshold: 4,
+      browserSearchCriticalThreshold: 8,
+      detectors: {
+        browserSearchStorm: true,
+      },
+    });
+  });
+
+  it("rejects browser search loop detection config when warning threshold is not lower than critical", () => {
+    const parsed = ToolsSchema.safeParse({
+      loopDetection: {
+        browserSearchWarningThreshold: 8,
+        browserSearchCriticalThreshold: 4,
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["loopDetection", "browserSearchCriticalThreshold"],
+            message:
+              "tools.loopDetection.browserSearchWarningThreshold must be lower than browserSearchCriticalThreshold.",
+          }),
+        ]),
+      );
+    }
+  });
+
+  it("rejects browser search warning threshold when it exceeds the default critical threshold", () => {
+    const parsed = ToolsSchema.safeParse({
+      loopDetection: {
+        browserSearchWarningThreshold: 10,
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["loopDetection", "browserSearchWarningThreshold"],
+            message:
+              "tools.loopDetection.browserSearchWarningThreshold must be lower than the effective browserSearchCriticalThreshold (8).",
+          }),
+        ]),
+      );
+    }
+  });
+
+  it("rejects browser search critical threshold when it is not above the default warning threshold", () => {
+    const parsed = ToolsSchema.safeParse({
+      loopDetection: {
+        browserSearchCriticalThreshold: 4,
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["loopDetection", "browserSearchCriticalThreshold"],
+            message:
+              "tools.loopDetection.browserSearchCriticalThreshold must be higher than the effective browserSearchWarningThreshold (4).",
+          }),
+        ]),
+      );
+    }
+  });
+
+  it("rejects browser search loop detection config when thresholds are below 2", () => {
+    const parsed = ToolsSchema.safeParse({
+      loopDetection: {
+        browserSearchWarningThreshold: 1,
+        browserSearchCriticalThreshold: 1,
+      },
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: ["loopDetection", "browserSearchWarningThreshold"],
+            message: "tools.loopDetection.browserSearchWarningThreshold must be at least 2.",
+          }),
+          expect.objectContaining({
+            path: ["loopDetection", "browserSearchCriticalThreshold"],
+            message: "tools.loopDetection.browserSearchCriticalThreshold must be at least 2.",
+          }),
+        ]),
+      );
+    }
+  });
+
   it("keeps tags in the allowed taxonomy", () => {
     const withTags = applyDerivedTags({
       "gateway.auth.token": {},
