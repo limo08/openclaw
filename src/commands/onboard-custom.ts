@@ -1,7 +1,7 @@
 import { CONTEXT_WINDOW_HARD_MIN_TOKENS } from "../agents/context-window-guard.js";
 import { DEFAULT_PROVIDER } from "../agents/defaults.js";
 import { buildModelAliasIndex, modelKey } from "../agents/model-selection.js";
-import { OLLAMA_DEFAULT_BASE_URL } from "../agents/ollama-defaults.js";
+import { OLLAMA_DEFAULT_BASE_URL } from "../agents/ollama-models.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ModelProviderConfig } from "../config/types.models.js";
 import { isSecretRef, type SecretInput } from "../config/types.secrets.js";
@@ -73,7 +73,10 @@ function transformAzureConfigUrl(baseUrl: string): string {
   if (normalizedUrl.endsWith("/openai/v1")) {
     return normalizedUrl;
   }
-  return `${normalizedUrl}/openai/v1`;
+  // Strip a full deployment path back to the base origin
+  const deploymentIdx = normalizedUrl.indexOf("/openai/deployments/");
+  const base = deploymentIdx !== -1 ? normalizedUrl.slice(0, deploymentIdx) : normalizedUrl;
+  return `${base}/openai/v1`;
 }
 
 export type CustomApiCompatibility = "openai" | "anthropic";
@@ -640,6 +643,7 @@ export function applyCustomApiConfig(params: ApplyCustomApiConfigParams): Custom
     ? existingModels.map((model) =>
         model.id === modelId
           ? {
+              ...nextModel,
               ...model,
               ...(isAzure ? nextModel : {}),
               name: model.name ?? nextModel.name,
