@@ -40,6 +40,10 @@ function readPollParamRaw(params: Record<string, unknown>, key: string): unknown
   return readSnakeCaseParamRaw(params, key);
 }
 
+function isPositiveFiniteNumber(value: number): boolean {
+  return Number.isFinite(value) && value > 0;
+}
+
 export function resolveTelegramPollVisibility(params: {
   pollAnonymous?: boolean;
   pollPublic?: boolean;
@@ -69,12 +73,12 @@ export function hasPollCreationParams(params: Record<string, unknown>): boolean 
       }
     }
     if (def.kind === "number") {
-      if (typeof value === "number" && Number.isFinite(value)) {
+      if (typeof value === "number" && isPositiveFiniteNumber(value)) {
         return true;
       }
       if (typeof value === "string") {
         const trimmed = value.trim();
-        if (trimmed.length > 0 && Number.isFinite(Number(trimmed))) {
+        if (trimmed.length > 0 && isPositiveFiniteNumber(Number(trimmed))) {
           return true;
         }
       }
