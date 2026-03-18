@@ -879,6 +879,19 @@ export async function monitorDiscordProvider(opts: MonitorDiscordOpts = {}) {
         gateway: lifecycleGateway,
         details: String(err),
       });
+      throw new Error(`Failed to fetch bot identity: ${String(err)}`, { cause: err });
+    }
+    if (!botUserId) {
+      runtime.error?.(danger("discord: bot user id missing after successful identity fetch"));
+      logDiscordStartupPhase({
+        runtime,
+        accountId: account.accountId,
+        phase: "fetch-bot-identity:error",
+        startAt: startupStartedAt,
+        gateway: lifecycleGateway,
+        details: "botUserId resolved to undefined",
+      });
+      throw new Error("Failed to resolve Discord bot user id");
     }
 
     if (voiceEnabled) {
