@@ -463,6 +463,14 @@ export class AcpxRuntime implements AcpRuntime {
           fallbackCode: "ACP_SESSION_INIT_FAILED",
         });
       } catch (error) {
+        const isSilentInitExit =
+          error instanceof AcpRuntimeError &&
+          error.code === "ACP_SESSION_INIT_FAILED" &&
+          /acpx exited with code\s+[1-9]\d*/i.test(error.message);
+        if (isSilentInitExit) {
+          throw error;
+        }
+
         const recovered = await this.recoverEnsureFailure({
           sessionName,
           agent,

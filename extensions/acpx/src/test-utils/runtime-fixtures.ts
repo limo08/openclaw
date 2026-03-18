@@ -81,12 +81,9 @@ if (command === "sessions" && args[commandIndex + 1] === "ensure") {
   writeLog({ kind: "ensure", agent, args, sessionName: ensureName });
   if (process.env.MOCK_ACPX_ENSURE_EXIT_1 === "1") {
     emitJson({
-      jsonrpc: "2.0",
-      id: null,
-      error: {
-        code: -32603,
-        message: "mock ensure failure",
-      },
+      type: "error",
+      code: "-32603",
+      message: "mock ensure failure",
     });
     process.exit(1);
   }
