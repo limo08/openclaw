@@ -1,5 +1,6 @@
 import { normalizeChatChannelId } from "../channels/registry.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { isTestEnvironment } from "../utils/test-env.js";
 import type { PluginRecord } from "./registry.js";
 import { defaultSlotIdForKey } from "./slots.js";
 
@@ -222,7 +223,7 @@ export function applyTestPluginDefaults(
   cfg: OpenClawConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): OpenClawConfig {
-  if (!env.VITEST) {
+  if (!isTestEnvironment(env)) {
     return cfg;
   }
   const plugins = cfg.plugins;
@@ -260,7 +261,7 @@ export function isTestDefaultMemorySlotDisabled(
   cfg: OpenClawConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): boolean {
-  if (!env.VITEST) {
+  if (!isTestEnvironment(env)) {
     return false;
   }
   const plugins = cfg.plugins;
