@@ -21,20 +21,56 @@ function readConfiguredDefaultAccountId(config: OpenClawPluginApi["config"]): st
   return normalizeOptionalAccountId(value);
 }
 
+function shouldAutoBindAgent(config: OpenClawPluginApi["config"]): boolean {
+  return (
+    (config.channels?.feishu as { autoBindAgentAccount?: boolean } | undefined)
+      ?.autoBindAgentAccount ?? true
+  );
+}
+
+function getAgentBindingAccountId(
+  config: OpenClawPluginApi["config"],
+  agentId?: string,
+): string | undefined {
+  if (!agentId) return undefined;
+  const bindings = config.bindings as
+    | Array<{
+        type?: "route" | "acp";
+        agentId: string;
+        match: { channel: string; accountId?: string };
+      }>
+    | undefined;
+  // Filter to route bindings only (exclude ACP bindings)
+  const routeBindings = bindings?.filter((b) => b.type !== "acp");
+  const boundAccountId = routeBindings?.find((b) => {
+    if (b.agentId !== agentId || b.match?.channel !== "feishu") return false;
+    const normalizedAccountId = normalizeOptionalAccountId(b.match?.accountId);
+    // Ignore wildcard accountId values like "*" so later concrete bindings can still match.
+    return normalizedAccountId !== undefined && normalizedAccountId !== "*";
+  })?.match?.accountId;
+  return normalizeOptionalAccountId(boundAccountId);
+}
+
 export function resolveFeishuToolAccount(params: {
   api: Pick<OpenClawPluginApi, "config">;
   executeParams?: AccountAwareParams;
   defaultAccountId?: string;
+  agentId?: string;
 }): ResolvedFeishuAccount {
   if (!params.api.config) {
     throw new Error("Feishu config unavailable");
   }
+
+  const accountId =
+    normalizeOptionalAccountId(params.executeParams?.accountId) ||
+    (shouldAutoBindAgent(params.api.config) &&
+      getAgentBindingAccountId(params.api.config, params.agentId)) ||
+    readConfiguredDefaultAccountId(params.api.config) ||
+    normalizeOptionalAccountId(params.defaultAccountId);
+
   return resolveFeishuAccount({
     cfg: params.api.config,
-    accountId:
-      normalizeOptionalAccountId(params.executeParams?.accountId) ??
-      readConfiguredDefaultAccountId(params.api.config) ??
-      normalizeOptionalAccountId(params.defaultAccountId),
+    accountId,
   });
 }
 
@@ -42,6 +78,7 @@ export function createFeishuToolClient(params: {
   api: Pick<OpenClawPluginApi, "config">;
   executeParams?: AccountAwareParams;
   defaultAccountId?: string;
+  agentId?: string;
 }): Lark.Client {
   return createFeishuClient(resolveFeishuToolAccount(params));
 }
