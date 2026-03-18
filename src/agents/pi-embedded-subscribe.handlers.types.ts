@@ -33,6 +33,7 @@ export type ToolCallSummary = {
 export type EmbeddedPiSubscribeState = {
   assistantTexts: string[];
   toolMetas: Array<{ toolName?: string; meta?: string }>;
+  totalToolCallCount: number;
   toolMetaById: Map<string, ToolCallSummary>;
   toolSummaryById: Set<string>;
   lastToolError?: ToolErrorSummary;
@@ -53,6 +54,7 @@ export type EmbeddedPiSubscribeState = {
   lastStreamedReasoning?: string;
   lastBlockReplyText?: string;
   reasoningStreamOpen: boolean;
+  thinkingStartedAt?: number;
   assistantMessageIndex: number;
   lastAssistantTextMessageIndex: number;
   lastAssistantTextNormalized?: string;

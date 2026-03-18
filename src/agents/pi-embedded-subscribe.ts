@@ -38,6 +38,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
   const state: EmbeddedPiSubscribeState = {
     assistantTexts: [],
     toolMetas: [],
+    totalToolCallCount: 0,
     toolMetaById: new Map(),
     toolSummaryById: new Set(),
     lastToolError: undefined,
@@ -679,6 +680,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
   return {
     assistantTexts,
     toolMetas,
+    getTotalToolCallCount: () => state.totalToolCallCount,
     unsubscribe,
     isCompacting: () => state.compactionInFlight || state.pendingCompactionRetry > 0,
     isCompactionInFlight: () => state.compactionInFlight,
