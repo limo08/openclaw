@@ -21,13 +21,27 @@ export const __setMaxChatHistoryMessagesBytesForTest = (value?: number) => {
     maxChatHistoryMessagesBytes = value;
   }
 };
-export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 3_000;
+const MAX_TIMER_MS = 2_147_483_647; // Node.js setTimeout max (32-bit signed int)
+
+export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
 export const getHandshakeTimeoutMs = () => {
+  // Test override takes highest priority when running under Vitest
   if (process.env.VITEST && process.env.OPENCLAW_TEST_HANDSHAKE_TIMEOUT_MS) {
     const parsed = Number(process.env.OPENCLAW_TEST_HANDSHAKE_TIMEOUT_MS);
     if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
+      return Math.min(parsed, MAX_TIMER_MS);
     }
+  }
+  // Production override via environment variable
+  const envVal = process.env.OPENCLAW_HANDSHAKE_TIMEOUT_MS;
+  if (envVal) {
+    const parsed = Number(envVal);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.min(parsed, MAX_TIMER_MS);
+    }
+    console.warn(
+      `[openclaw] Ignoring invalid OPENCLAW_HANDSHAKE_TIMEOUT_MS="${envVal}" (must be a positive number)`,
+    );
   }
   return DEFAULT_HANDSHAKE_TIMEOUT_MS;
 };
