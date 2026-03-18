@@ -319,13 +319,17 @@ export class MemoryIndexManager extends MemoryManagerEmbeddingOps implements Mem
     }
 
     // If FTS isn't available, hybrid mode cannot use keyword search; degrade to vector-only.
-    const keywordResults =
+    // Parallelize keyword search (local FTS) and embedding generation (network call) for better performance
+    const [keywordResults, { queryVec, hasVector }] = await Promise.all([
       hybrid.enabled && this.fts.enabled && this.fts.available
-        ? await this.searchKeyword(cleaned, candidates).catch(() => [])
-        : [];
-
-    const queryVec = await this.embedQueryWithTimeout(cleaned);
-    const hasVector = queryVec.some((v) => v !== 0);
+        ? this.searchKeyword(cleaned, candidates).catch(() => [])
+        : [],
+      (async () => {
+        const queryVec = await this.embedQueryWithTimeout(cleaned);
+        const hasVector = queryVec.some((v) => v !== 0);
+        return { queryVec, hasVector };
+      })(),
+    ]);
     const vectorResults = hasVector
       ? await this.searchVector(queryVec, candidates).catch(() => [])
       : [];
