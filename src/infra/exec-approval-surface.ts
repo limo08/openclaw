@@ -1,6 +1,10 @@
 import { getChannelPlugin, listChannelPlugins } from "../channels/plugins/index.js";
 import { loadConfig, type OpenClawConfig } from "../config/config.js";
 import { INTERNAL_MESSAGE_CHANNEL, normalizeMessageChannel } from "../utils/message-channel.js";
+import {
+  DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
+  normalizeExecApprovalTimeoutMs,
+} from "./exec-approvals.js";
 
 export type ExecApprovalInitiatingSurfaceState =
   | { kind: "enabled"; channel: string | undefined; channelLabel: string }
@@ -42,6 +46,32 @@ export function resolveExecApprovalInitiatingSurfaceState(params: {
     return { ...state, channel, channelLabel };
   }
   return { kind: "unsupported", channel, channelLabel };
+}
+
+export function resolveExecApprovalTimeoutMs(params: {
+  channel?: string | null;
+  accountId?: string | null;
+  cfg?: OpenClawConfig;
+  defaultTimeoutMs?: number;
+}): number {
+  const defaultTimeoutMs = normalizeExecApprovalTimeoutMs(
+    params.defaultTimeoutMs,
+    DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
+  );
+  const channel = normalizeMessageChannel(params.channel);
+  if (!channel || channel === INTERNAL_MESSAGE_CHANNEL || channel === "tui") {
+    return defaultTimeoutMs;
+  }
+
+  const cfg = params.cfg ?? loadConfig();
+  return normalizeExecApprovalTimeoutMs(
+    getChannelPlugin(channel)?.execApprovals?.resolveApprovalTimeoutMs?.({
+      cfg,
+      accountId: params.accountId,
+      defaultTimeoutMs,
+    }),
+    defaultTimeoutMs,
+  );
 }
 
 export function hasConfiguredExecApprovalDmRoute(cfg: OpenClawConfig): boolean {

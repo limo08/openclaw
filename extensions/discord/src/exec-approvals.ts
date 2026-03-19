@@ -1,5 +1,9 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-runtime";
-import { getExecApprovalReplyMetadata } from "openclaw/plugin-sdk/infra-runtime";
+import {
+  DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
+  getExecApprovalReplyMetadata,
+  normalizeExecApprovalTimeoutMs,
+} from "openclaw/plugin-sdk/infra-runtime";
 import type { ReplyPayload } from "openclaw/plugin-sdk/reply-runtime";
 import { resolveDiscordAccount } from "./accounts.js";
 
@@ -9,6 +13,25 @@ export function isDiscordExecApprovalClientEnabled(params: {
 }): boolean {
   const config = resolveDiscordAccount(params).config.execApprovals;
   return Boolean(config?.enabled && (config.approvers?.length ?? 0) > 0);
+}
+
+export function resolveDiscordExecApprovalTimeoutMs(params: {
+  cfg: OpenClawConfig;
+  accountId?: string | null;
+  defaultTimeoutMs?: number;
+}): number {
+  const fallback = normalizeExecApprovalTimeoutMs(
+    params.defaultTimeoutMs,
+    DEFAULT_EXEC_APPROVAL_TIMEOUT_MS,
+  );
+  if (!isDiscordExecApprovalClientEnabled(params)) {
+    return fallback;
+  }
+  return normalizeExecApprovalTimeoutMs(
+    resolveDiscordAccount({ cfg: params.cfg, accountId: params.accountId }).config.execApprovals
+      ?.timeoutMs,
+    fallback,
+  );
 }
 
 export function shouldSuppressLocalDiscordExecApprovalPrompt(params: {

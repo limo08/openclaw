@@ -1,9 +1,19 @@
-import type { ExecAsk, ExecSecurity, SystemRunApprovalPlan } from "../infra/exec-approvals.js";
+import {
+  normalizeExecApprovalTimeoutMs,
+  type ExecAsk,
+  type ExecSecurity,
+  type SystemRunApprovalPlan,
+} from "../infra/exec-approvals.js";
 import {
   DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS,
   DEFAULT_APPROVAL_TIMEOUT_MS,
 } from "./bash-tools.exec-runtime.js";
 import { callGatewayTool } from "./tools/gateway.js";
+
+const APPROVAL_WAIT_TIMEOUT_BUFFER_MS = Math.max(
+  0,
+  DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS - DEFAULT_APPROVAL_TIMEOUT_MS,
+);
 
 export type RequestExecApprovalDecisionParams = {
   id: string;
@@ -23,6 +33,7 @@ export type RequestExecApprovalDecisionParams = {
   turnSourceTo?: string;
   turnSourceAccountId?: string;
   turnSourceThreadId?: string | number;
+  timeoutMs?: number;
 };
 
 type ExecApprovalRequestToolParams = RequestExecApprovalDecisionParams & {
@@ -33,6 +44,7 @@ type ExecApprovalRequestToolParams = RequestExecApprovalDecisionParams & {
 function buildExecApprovalRequestToolParams(
   params: RequestExecApprovalDecisionParams,
 ): ExecApprovalRequestToolParams {
+  const timeoutMs = normalizeExecApprovalTimeoutMs(params.timeoutMs, DEFAULT_APPROVAL_TIMEOUT_MS);
   return {
     id: params.id,
     ...(params.command ? { command: params.command } : {}),
@@ -51,9 +63,17 @@ function buildExecApprovalRequestToolParams(
     turnSourceTo: params.turnSourceTo,
     turnSourceAccountId: params.turnSourceAccountId,
     turnSourceThreadId: params.turnSourceThreadId,
-    timeoutMs: DEFAULT_APPROVAL_TIMEOUT_MS,
+    timeoutMs,
     twoPhase: true,
   };
+}
+
+function resolveExecApprovalWaitTimeoutMs(timeoutMs: number | undefined): number {
+  const approvalTimeoutMs = normalizeExecApprovalTimeoutMs(timeoutMs, DEFAULT_APPROVAL_TIMEOUT_MS);
+  return Math.max(
+    DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS,
+    approvalTimeoutMs + APPROVAL_WAIT_TIMEOUT_BUFFER_MS,
+  );
 }
 
 type ParsedDecision = { present: boolean; value: string | null };
@@ -88,33 +108,34 @@ export type ExecApprovalRegistration = {
 export async function registerExecApprovalRequest(
   params: RequestExecApprovalDecisionParams,
 ): Promise<ExecApprovalRegistration> {
+  const requestParams = buildExecApprovalRequestToolParams(params);
   // Two-phase registration is critical: the ID must be registered server-side
   // before exec returns `approval-pending`, otherwise `/approve` can race and orphan.
   const registrationResult = await callGatewayTool<{
     id?: string;
     expiresAtMs?: number;
     decision?: string;
-  }>(
-    "exec.approval.request",
-    { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
-    buildExecApprovalRequestToolParams(params),
-    { expectFinal: false },
-  );
+  }>("exec.approval.request", { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS }, requestParams, {
+    expectFinal: false,
+  });
   const decision = parseDecision(registrationResult);
   const id = parseString(registrationResult?.id) ?? params.id;
   const expiresAtMs =
-    parseExpiresAtMs(registrationResult?.expiresAtMs) ?? Date.now() + DEFAULT_APPROVAL_TIMEOUT_MS;
+    parseExpiresAtMs(registrationResult?.expiresAtMs) ?? Date.now() + requestParams.timeoutMs;
   if (decision.present) {
     return { id, expiresAtMs, finalDecision: decision.value };
   }
   return { id, expiresAtMs };
 }
 
-export async function waitForExecApprovalDecision(id: string): Promise<string | null> {
+export async function waitForExecApprovalDecision(
+  id: string,
+  timeoutMs?: number,
+): Promise<string | null> {
   try {
     const decisionResult = await callGatewayTool<{ decision: string }>(
       "exec.approval.waitDecision",
-      { timeoutMs: DEFAULT_APPROVAL_REQUEST_TIMEOUT_MS },
+      { timeoutMs: resolveExecApprovalWaitTimeoutMs(timeoutMs) },
       { id },
     );
     return parseDecision(decisionResult).value;
@@ -131,21 +152,23 @@ export async function waitForExecApprovalDecision(id: string): Promise<string | 
 export async function resolveRegisteredExecApprovalDecision(params: {
   approvalId: string;
   preResolvedDecision: string | null | undefined;
+  timeoutMs?: number;
 }): Promise<string | null> {
   if (params.preResolvedDecision !== undefined) {
     return params.preResolvedDecision ?? null;
   }
-  return await waitForExecApprovalDecision(params.approvalId);
+  return await waitForExecApprovalDecision(params.approvalId, params.timeoutMs);
 }
 
 export async function requestExecApprovalDecision(
   params: RequestExecApprovalDecisionParams,
 ): Promise<string | null> {
+  const requestParams = buildExecApprovalRequestToolParams(params);
   const registration = await registerExecApprovalRequest(params);
   if (Object.hasOwn(registration, "finalDecision")) {
     return registration.finalDecision ?? null;
   }
-  return await waitForExecApprovalDecision(registration.id);
+  return await waitForExecApprovalDecision(registration.id, requestParams.timeoutMs);
 }
 
 type HostExecApprovalParams = {
@@ -166,6 +189,7 @@ type HostExecApprovalParams = {
   turnSourceTo?: string;
   turnSourceAccountId?: string;
   turnSourceThreadId?: string | number;
+  timeoutMs?: number;
 };
 
 type ExecApprovalRequesterContext = {
@@ -221,6 +245,7 @@ function buildHostApprovalDecisionParams(
     }),
     resolvedPath: params.resolvedPath,
     ...buildExecApprovalTurnSourceContext(params),
+    timeoutMs: params.timeoutMs,
   };
 }
 
