@@ -1,5 +1,3 @@
-import fsSync from "node:fs";
-import fs from "node:fs/promises";
 import { vi } from "vitest";
 import type { MockBaileysSocket } from "../../../test/mocks/baileys.js";
 import { createMockBaileys } from "../../../test/mocks/baileys.js";
@@ -55,30 +53,6 @@ vi.mock("openclaw/plugin-sdk/config-runtime", async () => {
       }
       return DEFAULT_CONFIG;
     },
-    updateLastRoute: async (params: {
-      storePath: string;
-      sessionKey: string;
-      deliveryContext: { channel: string; to: string; accountId?: string };
-    }) => {
-      const raw = await fs.readFile(params.storePath, "utf8").catch(() => "{}");
-      const store = JSON.parse(raw) as Record<string, Record<string, unknown>>;
-      const current = store[params.sessionKey] ?? {};
-      store[params.sessionKey] = {
-        ...current,
-        lastChannel: params.deliveryContext.channel,
-        lastTo: params.deliveryContext.to,
-        lastAccountId: params.deliveryContext.accountId,
-      };
-      await fs.writeFile(params.storePath, JSON.stringify(store));
-    },
-    loadSessionStore: (storePath: string) => {
-      try {
-        return JSON.parse(fsSync.readFileSync(storePath, "utf8")) as Record<string, unknown>;
-      } catch {
-        return {};
-      }
-    },
-    recordSessionMetaFromInbound: async () => undefined,
     resolveStorePath: actual.resolveStorePath,
   };
 });
