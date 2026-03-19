@@ -220,6 +220,7 @@ export const FIELD_LABELS: Record<string, string> = {
   "tools.web.search.timeoutSeconds": "Web Search Timeout (sec)",
   "tools.web.search.cacheTtlMinutes": "Web Search Cache TTL (min)",
   "tools.web.fetch.enabled": "Enable Web Fetch Tool",
+  "tools.web.fetch.allowRfc2544BenchmarkRange": "Web Fetch Allow RFC2544 Fake-IP",
   "tools.web.fetch.maxChars": "Web Fetch Max Chars",
   "tools.web.fetch.maxCharsCap": "Web Fetch Hard Max Chars",
   "tools.web.fetch.timeoutSeconds": "Web Fetch Timeout (sec)",
