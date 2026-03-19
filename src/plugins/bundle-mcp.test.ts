@@ -62,7 +62,9 @@ describe("loadEnabledBundleMcpConfig", () => {
       expect(normalizePath(await fs.realpath(loadedServerPath))).toBe(
         normalizePath(resolvedServerPath),
       );
-      expect(normalizePath(loadedServer.cwd as string)).toBe(normalizePath(resolvedPluginRoot));
+      expect(normalizePath(await fs.realpath(loadedServer.cwd as string))).toBe(
+        normalizePath(resolvedPluginRoot),
+      );
     } finally {
       env.restore();
     }
@@ -198,7 +200,7 @@ describe("loadEnabledBundleMcpConfig", () => {
         cwd?: string;
         env?: Record<string, string>;
       };
-      expect(normalizePath(inlineProbe.command)).toBe(
+      expect(normalizePath(await fs.realpath(inlineProbe.command ?? ""))).toBe(
         normalizePath(await fs.realpath(path.join(resolvedPluginRoot, "bin", "server.sh"))),
       );
       expect(await Promise.all(inlineProbe.args?.map((entry) => fs.realpath(entry)) ?? [])).toEqual([

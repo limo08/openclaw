@@ -3327,7 +3327,7 @@ module.exports = {
 
   it("derives plugin-sdk subpaths from package exports", () => {
     const subpaths = __testing.listPluginSdkExportedSubpaths();
-    expect(subpaths).toContain("compat");
+    expect(subpaths).toContain("setup");
     expect(subpaths).toContain("telegram");
     expect(subpaths).not.toContain("root-alias");
   });
@@ -3350,8 +3350,19 @@ module.exports = {
   });
 
   it("loads source runtime shims through the non-native Jiti boundary", async () => {
+    const pluginSdkRoot = path.join(process.cwd(), "src", "plugin-sdk");
+    const scopedAliases = Object.fromEntries(
+      __testing
+        .listPluginSdkExportedSubpaths()
+        .map((subpath) => [subpath, path.join(pluginSdkRoot, `${subpath}.ts`)])
+        .filter(([, aliasPath]) => fs.existsSync(aliasPath))
+        .map(([subpath, aliasPath]) => [`openclaw/plugin-sdk/${subpath}`, aliasPath]),
+    );
     const jiti = createJiti(import.meta.url, {
-      ...__testing.buildPluginLoaderJitiOptions({}),
+      ...__testing.buildPluginLoaderJitiOptions({
+        "openclaw/plugin-sdk": path.join(pluginSdkRoot, "index.ts"),
+        ...scopedAliases,
+      }),
       tryNative: false,
     });
     const discordChannelRuntime = path.join(

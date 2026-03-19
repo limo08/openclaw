@@ -125,8 +125,11 @@ let actualDispatchReplyWithBufferedBlockDispatcherPromise:
   | undefined;
 
 async function getActualDispatchReplyWithBufferedBlockDispatcher() {
-  actualDispatchReplyWithBufferedBlockDispatcherPromise ??=
-    import("../../../src/auto-reply/reply/provider-dispatcher.js").then(
+  actualDispatchReplyWithBufferedBlockDispatcherPromise ??= vi
+    .importActual<typeof import("openclaw/plugin-sdk/reply-runtime")>(
+      "openclaw/plugin-sdk/reply-runtime",
+    )
+    .then(
       (module) =>
         module.dispatchReplyWithBufferedBlockDispatcher as DispatchReplyWithBufferedBlockDispatcherFn,
     );

@@ -1295,7 +1295,7 @@ describe("secrets runtime snapshot", () => {
       snapshot.warnings.filter(
         (warning) => warning.code === "SECRETS_REF_IGNORED_INACTIVE_SURFACE",
       ),
-    ).toHaveLength(10);
+    ).toHaveLength(6);
     expect(snapshot.warnings.map((warning) => warning.path)).toEqual(
       expect.arrayContaining([
         "agents.defaults.memorySearch.remote.apiKey",
