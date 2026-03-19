@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { registerFeishuChatTools } from "./chat.js";
+import { createToolFactoryHarness } from "./tool-factory-test-harness.js";
 
 const createFeishuClientMock = vi.hoisted(() => vi.fn());
 const chatGetMock = vi.hoisted(() => vi.fn());
@@ -25,8 +26,7 @@ describe("registerFeishuChatTools", () => {
   });
 
   it("registers feishu_chat and handles info/members actions", async () => {
-    const registerTool = vi.fn();
-    registerFeishuChatTools({
+    const { api, resolveTool } = createToolFactoryHarness({
       config: {
         channels: {
           feishu: {
@@ -37,13 +37,10 @@ describe("registerFeishuChatTools", () => {
           },
         },
       } as any,
-      logger: { debug: vi.fn(), info: vi.fn() } as any,
-      registerTool,
-    } as any);
+    });
+    registerFeishuChatTools(api);
 
-    expect(registerTool).toHaveBeenCalledTimes(1);
-    const tool = registerTool.mock.calls[0]?.[0];
-    expect(tool?.name).toBe("feishu_chat");
+    const tool = resolveTool("feishu_chat");
 
     chatGetMock.mockResolvedValueOnce({
       code: 0,
@@ -97,8 +94,7 @@ describe("registerFeishuChatTools", () => {
   });
 
   it("skips registration when chat tool is disabled", () => {
-    const registerTool = vi.fn();
-    registerFeishuChatTools({
+    const { api, resolveTool } = createToolFactoryHarness({
       config: {
         channels: {
           feishu: {
@@ -109,9 +105,8 @@ describe("registerFeishuChatTools", () => {
           },
         },
       } as any,
-      logger: { debug: vi.fn(), info: vi.fn() } as any,
-      registerTool,
-    } as any);
-    expect(registerTool).not.toHaveBeenCalled();
+    });
+    registerFeishuChatTools(api);
+    expect(() => resolveTool("feishu_chat")).toThrow("Tool not registered: feishu_chat");
   });
 });

@@ -9,6 +9,11 @@ export const FeishuChatSchema = Type.Object({
     enum: [...CHAT_ACTION_VALUES],
     description: "Action to run: members | info | member_info",
   }),
+  accountId: Type.Optional(
+    Type.String({
+      description: "Optional Feishu account override for multi-account setups",
+    }),
+  ),
   chat_id: Type.Optional(Type.String({ description: "Chat ID (from URL or event payload)" })),
   member_id: Type.Optional(Type.String({ description: "Member ID for member_info lookups" })),
   page_size: Type.Optional(Type.Number({ description: "Page size (1-100, default 50)" })),

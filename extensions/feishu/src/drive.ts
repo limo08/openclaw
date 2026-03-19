@@ -1,8 +1,13 @@
 import type * as Lark from "@larksuiteoapi/node-sdk";
 import type { OpenClawPluginApi } from "../runtime-api.js";
-import { listEnabledFeishuAccounts } from "./accounts.js";
+import { listEnabledFeishuAccountConfigs } from "./accounts.js";
 import { FeishuDriveSchema, type FeishuDriveParams } from "./drive-schema.js";
-import { createFeishuToolClient, resolveAnyEnabledFeishuToolsConfig } from "./tool-account.js";
+import {
+  createFeishuToolClient,
+  isFeishuToolEnabledForRoutedAccount,
+  resolveAnyEnabledFeishuToolsConfig,
+  resolveFeishuToolAccountConfigState,
+} from "./tool-account.js";
 import {
   jsonToolResult,
   toolExecutionErrorResult,
@@ -169,7 +174,7 @@ export function registerFeishuDriveTools(api: OpenClawPluginApi) {
     return;
   }
 
-  const accounts = listEnabledFeishuAccounts(api.config);
+  const accounts = listEnabledFeishuAccountConfigs(api.config);
   if (accounts.length === 0) {
     api.logger.debug?.("feishu_drive: No Feishu accounts configured, skipping drive tools");
     return;
@@ -195,6 +200,23 @@ export function registerFeishuDriveTools(api: OpenClawPluginApi) {
         async execute(_toolCallId, params) {
           const p = params as FeishuDriveExecuteParams;
           try {
+            const account = resolveFeishuToolAccountConfigState({
+              api,
+              executeParams: p,
+              defaultAccountId,
+            });
+            if (
+              !isFeishuToolEnabledForRoutedAccount({
+                api,
+                executeParams: p,
+                defaultAccountId,
+                tool: "drive",
+              })
+            ) {
+              return jsonToolResult({
+                error: `Feishu drive is disabled for account "${account.accountId}".`,
+              });
+            }
             const client = createFeishuToolClient({
               api,
               executeParams: p,

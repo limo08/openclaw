@@ -5,7 +5,7 @@ import { basename } from "node:path";
 import type * as Lark from "@larksuiteoapi/node-sdk";
 import { Type } from "@sinclair/typebox";
 import type { OpenClawPluginApi } from "../runtime-api.js";
-import { listEnabledFeishuAccounts } from "./accounts.js";
+import { listEnabledFeishuAccountConfigs } from "./accounts.js";
 import { FeishuDocSchema, type FeishuDocParams } from "./doc-schema.js";
 import { BATCH_SIZE, insertBlocksInBatches } from "./docx-batch-insert.js";
 import { updateColorText } from "./docx-color-text.js";
@@ -20,7 +20,9 @@ import {
 import { getFeishuRuntime } from "./runtime.js";
 import {
   createFeishuToolClient,
+  isFeishuToolEnabledForRoutedAccount,
   resolveAnyEnabledFeishuToolsConfig,
+  resolveFeishuToolAccountConfigState,
   resolveFeishuToolAccount,
 } from "./tool-account.js";
 
@@ -1233,7 +1235,7 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
   }
 
   // Check if any account is configured
-  const accounts = listEnabledFeishuAccounts(api.config);
+  const accounts = listEnabledFeishuAccountConfigs(api.config);
   if (accounts.length === 0) {
     api.logger.debug?.("feishu_doc: No Feishu accounts configured, skipping doc tools");
     return;
@@ -1273,6 +1275,23 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
           async execute(_toolCallId, params) {
             const p = params as FeishuDocExecuteParams;
             try {
+              const account = resolveFeishuToolAccountConfigState({
+                api,
+                executeParams: p,
+                defaultAccountId,
+              });
+              if (
+                !isFeishuToolEnabledForRoutedAccount({
+                  api,
+                  executeParams: p,
+                  defaultAccountId,
+                  tool: "doc",
+                })
+              ) {
+                return json({
+                  error: `Feishu doc is disabled for account "${account.accountId}".`,
+                });
+              }
               const client = getClient(p, defaultAccountId);
               switch (p.action) {
                 case "read":
@@ -1439,10 +1458,30 @@ export function registerFeishuDocTools(api: OpenClawPluginApi) {
         label: "Feishu App Scopes",
         description:
           "List current app permissions (scopes). Use to debug permission issues or check available capabilities.",
-        parameters: Type.Object({}),
-        async execute() {
+        parameters: Type.Object({
+          accountId: Type.Optional(Type.String()),
+        }),
+        async execute(_toolCallId, params) {
+          const p = params as { accountId?: string };
           try {
-            const result = await listAppScopes(getClient(undefined, ctx.agentAccountId));
+            const account = resolveFeishuToolAccountConfigState({
+              api,
+              executeParams: p,
+              defaultAccountId: ctx.agentAccountId,
+            });
+            if (
+              !isFeishuToolEnabledForRoutedAccount({
+                api,
+                executeParams: p,
+                defaultAccountId: ctx.agentAccountId,
+                tool: "scopes",
+              })
+            ) {
+              return json({
+                error: `Feishu scopes are disabled for account "${account.accountId}".`,
+              });
+            }
+            const result = await listAppScopes(getClient(p, ctx.agentAccountId));
             return json(result);
           } catch (err) {
             return json({ error: err instanceof Error ? err.message : String(err) });
