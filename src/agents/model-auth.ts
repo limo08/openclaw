@@ -26,10 +26,29 @@ import {
   OLLAMA_LOCAL_AUTH_MARKER,
 } from "./model-auth-markers.js";
 import { normalizeProviderId, normalizeProviderIdForAuth } from "./model-selection.js";
+import { executeProviderPreScript } from "./provider-prescript.js";
 
 export { ensureAuthProfileStore, resolveAuthProfileOrder } from "./auth-profiles.js";
 
 const log = createSubsystemLogger("model-auth");
+
+const PLACEHOLDER_REGEX = /\$\{(\w+)\}/g;
+
+/** Replace ${VAR} placeholders in a string using scriptVars, then process.env as fallback. */
+function resolvePreScriptPlaceholders(value: string, scriptVars: Record<string, string>): string {
+  if (!value.includes("${")) {
+    return value;
+  }
+  return value.replace(PLACEHOLDER_REGEX, (match, varName: string) => {
+    if (varName in scriptVars) {
+      return scriptVars[varName];
+    }
+    if (process.env[varName]) {
+      return process.env[varName];
+    }
+    return match;
+  });
+}
 
 const AWS_BEARER_ENV = "AWS_BEARER_TOKEN_BEDROCK";
 const AWS_ACCESS_KEY_ENV = "AWS_ACCESS_KEY_ID";
@@ -312,6 +331,28 @@ export async function resolveApiKeyForProvider(params: {
   const authOverride = resolveProviderAuthOverride(cfg, provider);
   if (authOverride === "aws-sdk") {
     return resolveAwsSdkAuthInfo();
+  }
+
+  // Run preScript if configured on this provider.
+  // In the normal config-loading path, preScripts are executed earlier
+  // (in resolveConfigForRead → applyProviderPreScripts) so that their output
+  // takes priority during ${VAR} substitution. This block acts as a fallback
+  // for cases where the config was not loaded through the standard path, or
+  // where apiKey still contains unresolved placeholders after config loading.
+  const providerConfig = resolveProviderConfig(cfg, provider);
+  if (providerConfig?.preScript) {
+    const scriptVars = await executeProviderPreScript(providerConfig.preScript);
+    const rawKey = normalizeOptionalSecretInput(providerConfig.apiKey);
+    if (rawKey) {
+      const resolvedKey = resolvePreScriptPlaceholders(rawKey, scriptVars);
+      if (resolvedKey && resolvedKey !== rawKey) {
+        return {
+          apiKey: resolvedKey,
+          source: "preScript",
+          mode: "api-key",
+        };
+      }
+    }
   }
 
   const order = resolveAuthProfileOrder({
