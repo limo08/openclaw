@@ -287,7 +287,13 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
     }
   var enableSms by
     rememberSaveable {
-      mutableStateOf(smsAvailable && isPermissionGranted(context, Manifest.permission.SEND_SMS))
+      mutableStateOf(
+        smsAvailable &&
+          (
+            isPermissionGranted(context, Manifest.permission.SEND_SMS) ||
+              isPermissionGranted(context, Manifest.permission.READ_SMS)
+          ),
+      )
     }
   var enableCallLog by
     rememberSaveable {
@@ -336,7 +342,9 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
           !motionPermissionRequired ||
           isPermissionGranted(context, Manifest.permission.ACTIVITY_RECOGNITION)
       PermissionToggle.Sms ->
-        !smsAvailable || isPermissionGranted(context, Manifest.permission.SEND_SMS)
+        !smsAvailable ||
+          isPermissionGranted(context, Manifest.permission.SEND_SMS) ||
+          isPermissionGranted(context, Manifest.permission.READ_SMS)
       PermissionToggle.CallLog -> isPermissionGranted(context, Manifest.permission.READ_CALL_LOG)
     }
 
@@ -698,7 +706,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
                   requestPermissionToggle(
                     PermissionToggle.Sms,
                     checked,
-                    listOf(Manifest.permission.SEND_SMS),
+                    listOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_SMS),
                   )
                 }
               },
