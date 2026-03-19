@@ -1,4 +1,5 @@
 import { intro, note, outro, spinner } from "@clack/prompts";
+import { SDK_MANAGED_TOKEN } from "../../extensions/github-copilot/token.js";
 import { ensureAuthProfileStore, upsertAuthProfile } from "../agents/auth-profiles.js";
 import { updateConfig } from "../commands/models/shared.js";
 import { logConfigUpdated } from "../config/logging.js";
@@ -6,7 +7,6 @@ import { applyAuthProfileConfig } from "../plugins/provider-auth-helpers.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { stylePromptTitle } from "../terminal/prompt-style.js";
 import { getCopilotSdkAuthStatus, isCopilotSdkAvailable } from "./github-copilot-sdk.js";
-import { SDK_MANAGED_TOKEN } from "./github-copilot-token.js";
 
 const CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const DEVICE_CODE_URL = "https://github.com/login/device/code";
