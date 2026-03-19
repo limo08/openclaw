@@ -464,7 +464,16 @@ export async function createEmbeddingProvider(
       // Check plugin first - but only return if plugin is actually usable
       const pp = pluginProviders[pid];
       if (pp) {
-        return { provider: pp, requestedProvider };
+        // Try plugin - check if usable before returning
+        try {
+          await pp.embedQuery("test");
+          return { provider: pp, requestedProvider };
+        } catch (err) {
+          // Plugin unusable - fall through to try built-in
+          if (!isMissingApiKeyError(err)) {
+            missingKeyErrors.push(formatErrorMessage(err));
+          }
+        }
       }
       // Try built-in
       try {

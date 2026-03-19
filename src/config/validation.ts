@@ -480,7 +480,7 @@ function validateConfigObjectWithPluginsBase(
   const knownMemoryFallbacks = new Set([...knownMemoryProviders].filter((p) => p !== "auto"));
   knownMemoryFallbacks.add("none");
 
-  // Helper to detect likely typos (edit distance of 1-2 characters)
+  // Helper to detect likely typos based on prefix overlap (not full edit distance)
   function isLikelyTypo(input: string, known: string): boolean {
     const inputLower = input.toLowerCase();
     const knownLower = known.toLowerCase();
@@ -512,16 +512,7 @@ function validateConfigObjectWithPluginsBase(
     if (knownMemoryProviders.has(provider)) {
       return;
     }
-    // Check for typos of known providers - reject obvious misspellings
-    const isTypo = [...knownMemoryProviders].some(
-      (known) => known !== "auto" && isLikelyTypo(provider, known),
-    );
-    if (isTypo) {
-      issues.push({ path, message: `unknown memorySearch provider: ${provider}` });
-      return;
-    }
-    // Check if this is a loaded plugin embedding provider OR in manifest
-    // First check active registry
+    // Check if this is a loaded plugin embedding provider first
     const pluginRegistry = getActivePluginRegistry();
     const isKnownPlugin = pluginRegistry?.providers.some((entry) => {
       const caps = entry.provider.routingCapabilities;
@@ -533,6 +524,14 @@ function validateConfigObjectWithPluginsBase(
     });
     if (isKnownPlugin) {
       return; // Known plugin embedding provider - validate at runtime
+    }
+    // Only check for typos of known providers after confirming it's not a valid plugin
+    const isTypo = [...knownMemoryProviders].some(
+      (known) => known !== "auto" && isLikelyTypo(provider, known),
+    );
+    if (isTypo) {
+      issues.push({ path, message: `unknown memorySearch provider: ${provider}` });
+      return;
     }
     // Note: We don't check manifest registry here because manifest doesn't have
     // capability info - embeddings will be validated at runtime
@@ -548,13 +547,7 @@ function validateConfigObjectWithPluginsBase(
     if (knownMemoryFallbacks.has(fallback)) {
       return;
     }
-    // Check for typos of known fallbacks
-    const isTypo = [...knownMemoryFallbacks].some((known) => isLikelyTypo(fallback, known));
-    if (isTypo) {
-      issues.push({ path, message: `unknown memorySearch fallback: ${fallback}` });
-      return;
-    }
-    // Check if this is a loaded plugin embedding provider
+    // Check if this is a loaded plugin embedding provider first
     const pluginRegistry = getActivePluginRegistry();
     const isKnownPlugin = pluginRegistry?.providers.some((entry) => {
       const caps = entry.provider.routingCapabilities;
@@ -566,6 +559,12 @@ function validateConfigObjectWithPluginsBase(
     });
     if (isKnownPlugin) {
       return; // Known plugin embedding provider - validate at runtime
+    }
+    // Only check for typos after confirming it's not a valid plugin
+    const isTypo = [...knownMemoryFallbacks].some((known) => isLikelyTypo(fallback, known));
+    if (isTypo) {
+      issues.push({ path, message: `unknown memorySearch fallback: ${fallback}` });
+      return;
     }
     // Note: We don't check manifest registry here because manifest doesn't have
     // capability info - embeddings will be validated at runtime
