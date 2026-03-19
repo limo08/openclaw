@@ -8,6 +8,11 @@ import {
   resolveGatewayPortMock as resolveGatewayPort,
 } from "./gateway-connection.test-mocks.js";
 
+const deviceIdentityState = vi.hoisted(() => ({
+  value: { id: "test-device-identity" } as Record<string, unknown>,
+  throwOnLoad: false,
+}));
+
 let lastClientOptions: {
   url?: string;
   token?: string;
@@ -73,6 +78,15 @@ vi.mock("./client.js", () => ({
   },
 }));
 
+vi.mock("../infra/device-identity.js", () => ({
+  loadOrCreateDeviceIdentity: () => {
+    if (deviceIdentityState.throwOnLoad) {
+      throw new Error("read-only identity dir");
+    }
+    return deviceIdentityState.value;
+  },
+}));
+
 const { buildGatewayConnectionDetails, callGateway, callGatewayCli, callGatewayScoped } =
   await import("./call.js");
 
@@ -87,6 +101,7 @@ function resetGatewayCallMocks() {
   closeCode = 1006;
   closeReason = "";
   helloMethods = ["health", "secrets.resolve"];
+  deviceIdentityState.throwOnLoad = false;
 }
 
 function setGatewayNetworkDefaults(port = 18789) {
@@ -219,7 +234,22 @@ describe("callGateway url resolution", () => {
 
     expect(lastClientOptions?.url).toBe("ws://127.0.0.1:18789");
     expect(lastClientOptions?.token).toBe("explicit-token");
-    expect(lastClientOptions?.deviceIdentity).toBeDefined();
+    expect(lastClientOptions?.deviceIdentity).toEqual(deviceIdentityState.value);
+  });
+
+  it("falls back to token/password auth when device identity cannot be persisted", async () => {
+    setLocalLoopbackGatewayConfig();
+    deviceIdentityState.throwOnLoad = true;
+
+    await callGateway({
+      method: "health",
+      token: "explicit-token",
+    });
+
+    expect(lastClientOptions?.url).toBe("ws://127.0.0.1:18789");
+    expect(lastClientOptions?.token).toBe("explicit-token");
+    expect(lastClientOptions?.deviceIdentity).toBeNull();
+    expect(lastRequestOptions?.method).toBe("health");
   });
 
   it("uses OPENCLAW_GATEWAY_URL env override in remote mode when remote URL is missing", async () => {
