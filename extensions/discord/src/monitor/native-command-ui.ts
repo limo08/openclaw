@@ -5,14 +5,17 @@ import {
   Row,
   StringSelectMenu,
   TextDisplay,
+  type AutocompleteInteraction,
   type ButtonInteraction,
   type CommandInteraction,
   type ComponentData,
   type StringSelectMenuInteraction,
 } from "@buape/carbon";
 import { ButtonStyle } from "discord-api-types/v10";
+import { resolveDefaultModelForAgent } from "openclaw/plugin-sdk/agent-runtime";
 import type { OpenClawConfig, loadConfig } from "openclaw/plugin-sdk/config-runtime";
 import { loadSessionStore, resolveStorePath } from "openclaw/plugin-sdk/config-runtime";
+import { resolveConfiguredBindingRoute } from "openclaw/plugin-sdk/conversation-runtime";
 import {
   buildCommandTextFromArgs,
   findCommandByNativeName,
@@ -47,7 +50,10 @@ import {
   toDiscordModelPickerMessagePayload,
   type DiscordModelPickerCommandContext,
 } from "./model-picker.js";
-import { resolveDiscordBoundConversationRoute } from "./route-resolution.js";
+import {
+  resolveDiscordBoundConversationRoute,
+  resolveDiscordEffectiveRoute,
+} from "./route-resolution.js";
 import type { ThreadBindingManager } from "./thread-bindings.js";
 import { resolveDiscordThreadParentInfo } from "./threading.js";
 
@@ -220,7 +226,11 @@ function buildDiscordModelPickerNoticePayload(message: string): { components: Co
 }
 
 async function resolveDiscordModelPickerRoute(params: {
-  interaction: CommandInteraction | ButtonInteraction | StringSelectMenuInteraction;
+  interaction:
+    | CommandInteraction
+    | ButtonInteraction
+    | StringSelectMenuInteraction
+    | AutocompleteInteraction;
   cfg: ReturnType<typeof loadConfig>;
   accountId: string;
   threadBindings: ThreadBindingManager;
@@ -254,10 +264,7 @@ async function resolveDiscordModelPickerRoute(params: {
     threadParentId = parentInfo.id;
   }
 
-  const threadBinding = isThreadChannel
-    ? params.threadBindings.getByThreadId(rawChannelId)
-    : undefined;
-  return resolveDiscordBoundConversationRoute({
+  const route = resolveDiscordBoundConversationRoute({
     cfg,
     accountId,
     guildId: interaction.guild?.id ?? undefined,
@@ -267,8 +274,74 @@ async function resolveDiscordModelPickerRoute(params: {
     directUserId: interaction.user?.id ?? rawChannelId,
     conversationId: rawChannelId,
     parentConversationId: threadParentId,
-    boundSessionKey: threadBinding?.targetSessionKey,
   });
+  const threadBinding = isThreadChannel
+    ? params.threadBindings.getByThreadId(rawChannelId)
+    : undefined;
+  const configuredRoute =
+    threadBinding == null
+      ? resolveConfiguredBindingRoute({
+          cfg,
+          route,
+          conversation: {
+            channel: "discord",
+            accountId,
+            conversationId: rawChannelId,
+            parentConversationId: threadParentId,
+          },
+        })
+      : null;
+  const configuredBinding = configuredRoute?.bindingResolution ?? null;
+  const configuredBoundSessionKey = configuredRoute?.boundSessionKey?.trim() || undefined;
+  const boundSessionKey = threadBinding?.targetSessionKey?.trim() || configuredBoundSessionKey;
+  return resolveDiscordEffectiveRoute({
+    route,
+    boundSessionKey,
+    configuredRoute,
+    matchedBy: configuredBinding ? "binding.channel" : undefined,
+  });
+}
+
+export async function resolveDiscordNativeChoiceContext(params: {
+  interaction: AutocompleteInteraction;
+  cfg: ReturnType<typeof loadConfig>;
+  accountId: string;
+  threadBindings: ThreadBindingManager;
+}): Promise<{ provider?: string; model?: string } | null> {
+  try {
+    const route = await resolveDiscordModelPickerRoute({
+      interaction: params.interaction,
+      cfg: params.cfg,
+      accountId: params.accountId,
+      threadBindings: params.threadBindings,
+    });
+    const fallback = resolveDefaultModelForAgent({
+      cfg: params.cfg,
+      agentId: route.agentId,
+    });
+    const storePath = resolveStorePath(params.cfg.session?.store, {
+      agentId: route.agentId,
+    });
+    const sessionStore = loadSessionStore(storePath);
+    const sessionEntry = sessionStore[route.sessionKey];
+    const override = resolveStoredModelOverride({
+      sessionEntry,
+      sessionStore,
+      sessionKey: route.sessionKey,
+    });
+    if (!override?.model) {
+      return {
+        provider: fallback.provider,
+        model: fallback.model,
+      };
+    }
+    return {
+      provider: override.provider || fallback.provider,
+      model: override.model,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function resolveDiscordModelPickerCurrentModel(params: {
