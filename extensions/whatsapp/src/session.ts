@@ -7,12 +7,16 @@ import {
   makeWASocket,
   useMultiFileAuthState,
 } from "@whiskeysockets/baileys";
+import { HttpsProxyAgent } from "https-proxy-agent";
 import { formatCliCommand } from "openclaw/plugin-sdk/cli-runtime";
 import { VERSION } from "openclaw/plugin-sdk/cli-runtime";
 import { danger, success } from "openclaw/plugin-sdk/runtime-env";
 import { getChildLogger, toPinoLikeLogger } from "openclaw/plugin-sdk/runtime-env";
 import { ensureDir, resolveUserPath } from "openclaw/plugin-sdk/text-runtime";
 import qrcode from "qrcode-terminal";
+import { EnvHttpProxyAgent } from "undici";
+import { resolveEnvHttpProxyUrl } from "../../../src/infra/net/proxy-env.js";
+import { resolveProxyFetchFromEnv } from "../../../src/infra/net/proxy-fetch.js";
 import {
   maybeRestoreCredsFromBackup,
   readCredsJsonRaw,
@@ -34,6 +38,15 @@ export {
 // Per-authDir queues so multi-account creds saves don't block each other.
 const credsSaveQueues = new Map<string, Promise<void>>();
 const CREDS_SAVE_FLUSH_TIMEOUT_MS = 15_000;
+const WHATSAPP_WEB_SW_URL = "https://web.whatsapp.com/sw.js";
+const WHATSAPP_WEB_SW_MAX_BYTES = 512 * 1024;
+const WHATSAPP_WEB_VERSION_HEADERS = {
+  "sec-fetch-site": "none",
+  "user-agent":
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+} as const;
+const WHATSAPP_WEB_SOCKET_HOST = "web.whatsapp.com";
+
 function enqueueSaveCreds(
   authDir: string,
   saveCreds: () => Promise<void> | void,
@@ -90,6 +103,153 @@ async function safeSaveCreds(
   }
 }
 
+function extractWhatsAppWebVersion(source: string): [number, number, number] | null {
+  const match = source.match(/client_revision[^0-9]*(\d+)/);
+  if (!match) {
+    return null;
+  }
+  const revision = Number.parseInt(match[1] ?? "", 10);
+  if (!Number.isFinite(revision) || revision <= 0) {
+    return null;
+  }
+  return [2, 3000, revision];
+}
+
+function parseNoProxyRules(env: NodeJS.ProcessEnv = process.env): string[] {
+  const raw = env.no_proxy ?? env.NO_PROXY;
+  if (!raw) {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+}
+
+function stripNoProxyPort(rule: string): string {
+  if (rule.startsWith("[") && rule.includes("]")) {
+    const end = rule.indexOf("]");
+    return end >= 0 ? rule.slice(0, end + 1) : rule;
+  }
+  const colonIndex = rule.lastIndexOf(":");
+  if (colonIndex <= 0 || rule.includes(".")) {
+    return colonIndex > 0 ? rule.slice(0, colonIndex) : rule;
+  }
+  return rule;
+}
+
+function shouldBypassEnvProxyForHostname(
+  hostname: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const normalizedHost = hostname.trim().toLowerCase();
+  if (!normalizedHost) {
+    return false;
+  }
+  return parseNoProxyRules(env).some((rawRule) => {
+    if (rawRule === "*") {
+      return true;
+    }
+    const rule = stripNoProxyPort(rawRule).replace(/^\*\./, ".").toLowerCase();
+    if (!rule) {
+      return false;
+    }
+    if (rule.startsWith(".")) {
+      const bareRule = rule.slice(1);
+      return normalizedHost === bareRule || normalizedHost.endsWith(rule);
+    }
+    return normalizedHost === rule || normalizedHost.endsWith(`.${rule}`);
+  });
+}
+
+async function readResponseTextCapped(
+  response: Response,
+  maxBytes: number,
+): Promise<string | null> {
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader) {
+    const contentLength = Number.parseInt(contentLengthHeader, 10);
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      return null;
+    }
+  }
+  if (!response.body) {
+    const text = await response.text();
+    return Buffer.byteLength(text, "utf8") <= maxBytes ? text : null;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let totalBytes = 0;
+  let text = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        try {
+          await reader.cancel("WhatsApp sw.js response too large");
+        } catch {
+          // ignore reader cancellation errors
+        }
+        return null;
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    text += decoder.decode();
+    return text;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function fetchLatestWhatsAppWebVersion(
+  fetchImpl: typeof fetch,
+): Promise<[number, number, number] | null> {
+  try {
+    const response = await fetchImpl(WHATSAPP_WEB_SW_URL, {
+      method: "GET",
+      headers: WHATSAPP_WEB_VERSION_HEADERS,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const source = await readResponseTextCapped(response, WHATSAPP_WEB_SW_MAX_BYTES);
+    if (!source) {
+      return null;
+    }
+    return extractWhatsAppWebVersion(source);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveWhatsAppWebVersion(
+  sessionLogger: ReturnType<typeof getChildLogger>,
+): Promise<[number, number, number]> {
+  const latest = await fetchLatestBaileysVersion();
+  if (latest.isLatest) {
+    return latest.version;
+  }
+
+  const fetchImpl = resolveProxyFetchFromEnv() ?? globalThis.fetch;
+  const proxyVersion = fetchImpl ? await fetchLatestWhatsAppWebVersion(fetchImpl) : null;
+  if (!proxyVersion) {
+    return latest.version;
+  }
+
+  sessionLogger.info(
+    {
+      version: proxyVersion,
+    },
+    "using proxy-refreshed WhatsApp Web version",
+  );
+  return proxyVersion;
+}
+
 /**
  * Create a Baileys socket backed by the multi-file auth store we keep on disk.
  * Consumers can opt into QR printing for interactive login flows.
@@ -111,7 +271,13 @@ export async function createWaSocket(
   const sessionLogger = getChildLogger({ module: "web-session" });
   maybeRestoreCredsFromBackup(authDir);
   const { state, saveCreds } = await useMultiFileAuthState(authDir);
-  const { version } = await fetchLatestBaileysVersion();
+  const version = await resolveWhatsAppWebVersion(sessionLogger);
+  const proxyUrl = resolveEnvHttpProxyUrl("https");
+  const wsAgent =
+    proxyUrl && !shouldBypassEnvProxyForHostname(WHATSAPP_WEB_SOCKET_HOST)
+      ? new HttpsProxyAgent(proxyUrl)
+      : undefined;
+  const fetchAgent = proxyUrl ? new EnvHttpProxyAgent() : undefined;
   const sock = makeWASocket({
     auth: {
       creds: state.creds,
@@ -123,6 +289,8 @@ export async function createWaSocket(
     browser: ["openclaw", "cli", VERSION],
     syncFullHistory: false,
     markOnlineOnConnect: false,
+    ...(wsAgent ? { agent: wsAgent } : {}),
+    ...(fetchAgent ? { fetchAgent } : {}),
   });
 
   sock.ev.on("creds.update", () => enqueueSaveCreds(authDir, saveCreds, sessionLogger));
