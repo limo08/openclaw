@@ -97,11 +97,17 @@ function normalizeErrorMessage(error: unknown): string {
   return String(error);
 }
 
-function shouldUseLocalPairingFallback(opts: DevicesRpcOpts, error: unknown): boolean {
-  const message = normalizeErrorMessage(error).toLowerCase();
-  if (!message.includes("pairing required")) {
-    return false;
-  }
+function isLoopbackPairingHandshakeTimeout(message: string): boolean {
+  // Local token-auth pairing can time out before the gateway sends a reason
+  // frame, which currently surfaces to the CLI as a plain 1000/no-reason close.
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("gateway closed (1000 normal closure): no close reason") ||
+    lower.includes("gateway closed (1000): no close reason")
+  );
+}
+
+function shouldUseImplicitLoopbackPairingFallback(opts: DevicesRpcOpts): boolean {
   if (typeof opts.url === "string" && opts.url.trim().length > 0) {
     // Explicit --url might point at a remote/tunneled gateway; never silently
     // switch to local pairing files in that case.
@@ -118,6 +124,14 @@ function shouldUseLocalPairingFallback(opts: DevicesRpcOpts, error: unknown): bo
   }
 }
 
+function shouldUseLocalPairingFallback(opts: DevicesRpcOpts, error: unknown): boolean {
+  const message = normalizeErrorMessage(error).toLowerCase();
+  if (!message.includes("pairing required")) {
+    return false;
+  }
+  return shouldUseImplicitLoopbackPairingFallback(opts);
+}
+
 function redactLocalPairedDevice(device: InfraPairedDevice): PairedDevice {
   const { tokens, ...rest } = device;
   return {
@@ -130,7 +144,13 @@ async function listPairingWithFallback(opts: DevicesRpcOpts): Promise<DevicePair
   try {
     return parseDevicePairingList(await callGatewayCli("device.pair.list", opts, {}));
   } catch (error) {
-    if (!shouldUseLocalPairingFallback(opts, error)) {
+    const message = normalizeErrorMessage(error).toLowerCase();
+    if (
+      !shouldUseLocalPairingFallback(opts, error) &&
+      !(
+        shouldUseImplicitLoopbackPairingFallback(opts) && isLoopbackPairingHandshakeTimeout(message)
+      )
+    ) {
       throw error;
     }
     if (opts.json !== true) {

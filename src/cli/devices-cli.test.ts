@@ -251,6 +251,29 @@ describe("devices cli local fallback", () => {
     expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining(fallbackNotice));
   });
 
+  it.each([
+    "gateway closed (1000 normal closure): no close reason",
+    "gateway closed (1000): no close reason",
+  ])(
+    "falls back to local pairing list for loopback handshake close variant %s",
+    async (message) => {
+      callGateway.mockRejectedValueOnce(new Error(message));
+      listDevicePairing.mockResolvedValueOnce({
+        pending: [{ requestId: "req-1", deviceId: "device-1", publicKey: "pk", ts: 1 }],
+        paired: [],
+      });
+      summarizeDeviceTokens.mockReturnValue(undefined);
+
+      await runDevicesCommand(["list"]);
+
+      expect(callGateway).toHaveBeenCalledWith(
+        expect.objectContaining({ method: "device.pair.list" }),
+      );
+      expect(listDevicePairing).toHaveBeenCalledTimes(1);
+      expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining(fallbackNotice));
+    },
+  );
+
   it("falls back to local approve when gateway returns pairing required on loopback", async () => {
     callGateway
       .mockRejectedValueOnce(new Error("gateway closed (1008): pairing required"))
@@ -277,12 +300,28 @@ describe("devices cli local fallback", () => {
     expect(runtime.log).toHaveBeenCalledWith(expect.stringContaining("Approved"));
   });
 
-  it("does not use local fallback when an explicit --url is provided", async () => {
-    callGateway.mockRejectedValueOnce(new Error("gateway closed (1008): pairing required"));
+  it("does not use local approve fallback for generic loopback 1000 closes", async () => {
+    callGateway.mockRejectedValueOnce(
+      new Error("gateway closed (1000 normal closure): no close reason"),
+    );
+
+    await expect(runDevicesApprove(["req-1"])).rejects.toThrow(
+      "gateway closed (1000 normal closure): no close reason",
+    );
+    expect(approveDevicePairing).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "gateway closed (1008): pairing required",
+    "gateway closed (1000 normal closure): no close reason",
+  ])("does not use local fallback when an explicit --url is provided (%s)", async (message) => {
+    callGateway.mockRejectedValueOnce(new Error(message));
 
     await expect(
       runDevicesCommand(["list", "--json", "--url", "ws://127.0.0.1:18789"]),
-    ).rejects.toThrow("pairing required");
+    ).rejects.toThrow(
+      message.includes("pairing required") ? "pairing required" : "no close reason",
+    );
     expect(listDevicePairing).not.toHaveBeenCalled();
   });
 });
