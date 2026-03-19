@@ -7,6 +7,7 @@ import {
 } from "../../context-engine/index.js";
 import { computeBackoff, sleepWithAbort, type BackoffPolicy } from "../../infra/backoff.js";
 import { generateSecureToken } from "../../infra/secure-random.js";
+import { buildActivityMeta } from "../../logging/activity/build.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { prepareProviderRuntimeAuth } from "../../plugins/provider-runtime.js";
 import type { PluginHookBeforeAgentStartResult } from "../../plugins/types.js";
@@ -1650,6 +1651,16 @@ export async function runEmbeddedPiAgent(
 
           log.debug(
             `embedded run done: runId=${params.runId} sessionId=${params.sessionId} durationMs=${Date.now() - started} aborted=${aborted}`,
+            {
+              activity: buildActivityMeta({
+                kind: "run",
+                summary: aborted ? "embedded run aborted" : "embedded run done",
+                runId: params.runId,
+                sessionKey: params.sessionKey ?? params.sessionId,
+                status: aborted ? "error" : "ok",
+                durationMs: Date.now() - started,
+              }),
+            },
           );
           if (lastProfileId) {
             await markAuthProfileGood({
