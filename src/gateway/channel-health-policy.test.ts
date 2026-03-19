@@ -169,15 +169,86 @@ describe("evaluateChannelHealth", () => {
     expect(evaluation).toEqual({ healthy: true, reason: "healthy" });
   });
 
-  it("does not flag stale sockets for channels without event tracking", () => {
-    const evaluation = evaluateDiscordHealth({
-      running: true,
-      connected: true,
-      enabled: true,
-      configured: true,
-      lastStartAt: 0,
-      lastEventAt: null,
-    });
+  it("does not flag stale sockets for channels without event tracking within stale threshold", () => {
+    const evaluation = evaluateChannelHealth(
+      {
+        running: true,
+        connected: true,
+        enabled: true,
+        configured: true,
+        lastStartAt: 80_000,
+        lastEventAt: null,
+      },
+      {
+        channelId: "discord",
+        now: 100_000,
+        channelConnectGraceMs: 10_000,
+        staleEventThresholdMs: 30_000,
+      },
+    );
+    expect(evaluation).toEqual({ healthy: true, reason: "healthy" });
+  });
+
+  it("flags channels without event tracking as zombie when beyond stale threshold", () => {
+    // Previously this returned healthy. The zombie-detection fallback now
+    // catches non-telegram/non-webhook channels that report connected but
+    // never emit any application events beyond the stale threshold.
+    const evaluation = evaluateChannelHealth(
+      {
+        running: true,
+        connected: true,
+        enabled: true,
+        configured: true,
+        lastStartAt: 0,
+        lastEventAt: null,
+      },
+      {
+        channelId: "discord",
+        now: 100_000,
+        channelConnectGraceMs: 10_000,
+        staleEventThresholdMs: 30_000,
+      },
+    );
+    expect(evaluation).toEqual({ healthy: false, reason: "stale-socket" });
+  });
+
+  it("flags zombie state: connected but no events received after stale threshold", () => {
+    const evaluation = evaluateChannelHealth(
+      {
+        running: true,
+        connected: true,
+        enabled: true,
+        configured: true,
+        lastStartAt: 0,
+        lastEventAt: null,
+      },
+      {
+        channelId: "mattermost",
+        now: 100_000,
+        channelConnectGraceMs: 10_000,
+        staleEventThresholdMs: 30_000,
+      },
+    );
+    expect(evaluation).toEqual({ healthy: false, reason: "stale-socket" });
+  });
+
+  it("does not flag zombie state for telegram channels", () => {
+    const evaluation = evaluateChannelHealth(
+      {
+        running: true,
+        connected: true,
+        enabled: true,
+        configured: true,
+        lastStartAt: 0,
+        lastEventAt: null,
+      },
+      {
+        channelId: "telegram",
+        now: 100_000,
+        channelConnectGraceMs: 10_000,
+        staleEventThresholdMs: 30_000,
+      },
+    );
     expect(evaluation).toEqual({ healthy: true, reason: "healthy" });
   });
 

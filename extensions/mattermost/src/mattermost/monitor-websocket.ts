@@ -151,6 +151,17 @@ export function createMattermostConnectOnce(
             return;
           }
 
+          // Track last event time only on meaningful application events so
+          // infrastructure messages (hello, auth ack) don't suppress zombie
+          // detection in the channel health monitor.
+          if (
+            payload.event === "posted" ||
+            payload.event === "reaction_added" ||
+            payload.event === "reaction_removed"
+          ) {
+            opts.statusSink?.({ lastEventAt: Date.now() });
+          }
+
           if (payload.event === "reaction_added" || payload.event === "reaction_removed") {
             if (!opts.onReaction) {
               return;
