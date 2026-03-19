@@ -227,9 +227,12 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
   let streamSession: SlackStreamSession | null = null;
   let streamFailed = false;
   let usedReplyThreadTs: string | undefined;
+  let lastResolvedDraftThreadTs: string | undefined;
 
   const deliverNormally = async (payload: ReplyPayload, forcedThreadTs?: string): Promise<void> => {
-    const replyThreadTs = forcedThreadTs ?? replyPlan.nextThreadTs();
+    // Reuse the thread ts from a prior block delivery so all blocks within the
+    // same agent turn stay in the same thread (fixes #49341).
+    const replyThreadTs = forcedThreadTs ?? usedReplyThreadTs ?? replyPlan.nextThreadTs();
     await deliverReplies({
       replies: [payload],
       target: prepared.replyTarget,
@@ -374,13 +377,20 @@ export async function dispatchPreparedSlackMessage(prepared: PreparedSlackMessag
     accountId: account.accountId,
     maxChars: Math.min(ctx.textLimit, 4000),
     resolveThreadTs: () => {
-      const ts = replyPlan.nextThreadTs();
-      if (ts) {
-        usedReplyThreadTs ??= ts;
-      }
+      // Reuse thread ts from a prior block so draft streams stay threaded (#49341).
+      // Cache the resolved ts in a local so onMessageSent can latch it only
+      // after the send succeeds — avoids recording thread participation when
+      // the Slack API call actually failed.
+      const ts = usedReplyThreadTs ?? replyPlan.nextThreadTs();
+      lastResolvedDraftThreadTs = ts;
       return ts;
     },
-    onMessageSent: () => replyPlan.markSent(),
+    onMessageSent: () => {
+      if (lastResolvedDraftThreadTs) {
+        usedReplyThreadTs ??= lastResolvedDraftThreadTs;
+      }
+      replyPlan.markSent();
+    },
     log: logVerbose,
     warn: logVerbose,
   });
