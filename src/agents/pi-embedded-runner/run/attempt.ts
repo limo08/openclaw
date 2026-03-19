@@ -35,6 +35,7 @@ import { normalizeMessageChannel } from "../../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../../utils/provider-utils.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
+import { createAgentTraceLogger } from "../../agent-trace-log.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
 import {
   analyzeBootstrapBudget,
@@ -1940,6 +1941,15 @@ export async function runEmbeddedAttempt(
         modelApi: params.model.api,
         workspaceDir: params.workspaceDir,
       });
+      const agentTraceLogger = createAgentTraceLogger({
+        env: process.env,
+        runId: params.runId,
+        sessionId: activeSession.sessionId,
+        sessionKey: params.sessionKey,
+        provider: params.provider,
+        modelId: params.modelId,
+        workspaceDir: params.workspaceDir,
+      });
 
       // Ollama native API: bypass SDK's streamSimple and use direct /api/chat calls
       // for reliable streaming + tool calling support (#11828).
@@ -2125,7 +2135,9 @@ export async function runEmbeddedAttempt(
           activeSession.agent.streamFn,
         );
       }
-
+      if (agentTraceLogger) {
+        activeSession.agent.streamFn = agentTraceLogger.wrapStreamFn(activeSession.agent.streamFn);
+      }
       try {
         const prior = await sanitizeSessionHistory({
           messages: activeSession.messages,
@@ -2284,6 +2296,7 @@ export async function runEmbeddedAttempt(
         onPartialReply: params.onPartialReply,
         onAssistantMessageStart: params.onAssistantMessageStart,
         onAgentEvent: params.onAgentEvent,
+        onTraceEvent: agentTraceLogger?.logSessionEvent,
         enforceFinalTag: params.enforceFinalTag,
         config: params.config,
         sessionKey: sandboxSessionKey,
