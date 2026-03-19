@@ -156,8 +156,13 @@ describe("tui command handlers", () => {
     expect(setSessionMock).toHaveBeenCalledWith(
       expect.stringMatching(/^tui-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/),
     );
-    // /reset still resets the shared session
-    expect(resetSession).toHaveBeenCalledTimes(1);
+    // /new also calls resetSession to fire hooks (command:new, session-memory, etc.)
+    // /reset resets the shared session
+    expect(resetSession).toHaveBeenCalledTimes(2);
+    expect(resetSession).toHaveBeenCalledWith(
+      expect.stringMatching(/^tui-[a-f0-9-]+$/),
+      "new",
+    );
     expect(resetSession).toHaveBeenCalledWith("agent:main:main", "reset");
     expect(loadHistory).toHaveBeenCalledTimes(1); // /reset calls loadHistory directly; /new does so indirectly via setSession
   });
