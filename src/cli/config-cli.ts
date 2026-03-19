@@ -70,7 +70,7 @@ type ConfigSetOperation = {
 
 const OLLAMA_API_KEY_PATH: PathSegment[] = ["models", "providers", "ollama", "apiKey"];
 const OLLAMA_PROVIDER_PATH: PathSegment[] = ["models", "providers", "ollama"];
-const GATEWAY_NODES_DENY_COMMANDS_PATH: PathSegment[] = ["gateway", "nodes", "denyCommands"];
+const GATEWAY_NODES_PATH: PathSegment[] = ["gateway", "nodes"];
 const SECRET_PROVIDER_PATH_PREFIX: PathSegment[] = ["secrets", "providers"];
 const CONFIG_SET_EXAMPLE_VALUE = formatCliCommand(
   "openclaw config set gateway.port 19001 --strict-json",
@@ -897,6 +897,17 @@ function collectDryRunSchemaErrors(config: OpenClawConfig): ConfigSetDryRunError
   }));
 }
 
+function collectDenyCommandValidationMessages(config: OpenClawConfig): string[] {
+  return validateDenyCommandEntries(config.gateway?.nodes?.denyCommands, config).errors;
+}
+
+function collectDryRunDenyCommandErrors(config: OpenClawConfig): ConfigSetDryRunError[] {
+  return collectDenyCommandValidationMessages(config).map((message) => ({
+    kind: "schema",
+    message: `gateway.nodes.denyCommands: ${message}`,
+  }));
+}
+
 function formatDryRunFailureMessage(params: {
   errors: ConfigSetDryRunError[];
   skippedExecRefs: number;
@@ -975,26 +986,14 @@ export async function runConfigSet(opts: {
       setAtPath(next, operation.setPath, operation.value);
     }
     const nextConfig = next as OpenClawConfig;
-    if (
-      operations.some((operation) =>
-        pathOverlaps(operation.setPath, GATEWAY_NODES_DENY_COMMANDS_PATH),
-      )
-    ) {
-      const denyCommandsResult = validateDenyCommandEntries(
-        nextConfig.gateway?.nodes?.denyCommands,
-        nextConfig,
-      );
-      if (!denyCommandsResult.valid) {
-        throw new Error(
-          "Invalid denyCommands entries:\n" +
-            denyCommandsResult.errors.map((error) => `- ${error}`).join("\n"),
-        );
-      }
-    }
+    const shouldValidateGatewayNodeCommands = operations.some((operation) =>
+      pathOverlaps(operation.setPath, GATEWAY_NODES_PATH),
+    );
 
     if (opts.cliOptions.dryRun) {
       const hasJsonMode = operations.some((operation) => operation.inputMode === "json");
       const hasBuilderMode = operations.some((operation) => operation.inputMode === "builder");
+      const schemaChecksEnabled = hasJsonMode || shouldValidateGatewayNodeCommands;
       const refs =
         hasJsonMode || hasBuilderMode
           ? collectDryRunRefs({
@@ -1009,6 +1008,9 @@ export async function runConfigSet(opts: {
       const errors: ConfigSetDryRunError[] = [];
       if (hasJsonMode) {
         errors.push(...collectDryRunSchemaErrors(nextConfig));
+      }
+      if (shouldValidateGatewayNodeCommands) {
+        errors.push(...collectDryRunDenyCommandErrors(nextConfig));
       }
       if (hasJsonMode || hasBuilderMode) {
         errors.push(
@@ -1030,7 +1032,7 @@ export async function runConfigSet(opts: {
         configPath: shortenHomePath(snapshot.path),
         inputModes: [...new Set(operations.map((operation) => operation.inputMode))],
         checks: {
-          schema: hasJsonMode,
+          schema: schemaChecksEnabled,
           resolvability: hasJsonMode || hasBuilderMode,
           resolvabilityComplete:
             (hasJsonMode || hasBuilderMode) && selectedDryRunRefs.skippedExecRefs.length === 0,
@@ -1074,6 +1076,16 @@ export async function runConfigSet(opts: {
         );
       }
       return;
+    }
+
+    if (shouldValidateGatewayNodeCommands) {
+      const denyCommandErrors = collectDenyCommandValidationMessages(nextConfig);
+      if (denyCommandErrors.length > 0) {
+        throw new Error(
+          "Invalid denyCommands entries:\n" +
+            denyCommandErrors.map((error) => `- ${error}`).join("\n"),
+        );
+      }
     }
 
     await writeConfigFile(next);
