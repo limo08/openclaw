@@ -26,6 +26,8 @@ export type SessionAcpIdentitySource = "ensure" | "status" | "event";
 
 export type SessionAcpIdentityState = "pending" | "resolved";
 
+export const DEFAULT_SESSION_HISTORY_LIMIT = 5;
+
 export type SessionAcpIdentity = {
   state: SessionAcpIdentityState;
   acpxRecordId?: string;
@@ -63,6 +65,48 @@ export type AcpSessionRuntimeOptions = {
   timeoutSeconds?: number;
   /** Backend-specific option bag mapped through session/set_config_option. */
   backendExtras?: Record<string, string>;
+};
+
+/**
+ * Metadata snapshot saved when a session is pushed into the history queue.
+ * Used to restore per-session settings when switching back.
+ */
+export type SessionHistoryItemMetadata = {
+  systemSent?: boolean;
+  thinkingLevel?: string;
+  verboseLevel?: string;
+  reasoningLevel?: string;
+  ttsAuto?: TtsAutoMode;
+  modelOverride?: string;
+  providerOverride?: string;
+  label?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  totalTokens?: number;
+  totalTokensFresh?: boolean;
+  contextTokens?: number;
+  compactionCount?: number;
+  memoryFlushAt?: number;
+  memoryFlushCompactionCount?: number;
+};
+
+/**
+ * An entry in the per-SessionKey history queue (LRU ordered, tail = most recent).
+ * Tracks past sessionIds so users can switch between conversations
+ * within the same chat channel + peer identity.
+ */
+export type SessionHistoryItem = {
+  sessionId: string;
+  /** Timestamp captured when the session was deactivated/pushed into history. */
+  createdAt: number;
+  /** User-assigned label (future extension). */
+  label?: string;
+  /** Auto-generated title (future extension). */
+  derivedTitle?: string;
+  /** Metadata snapshot captured when this session was deactivated. */
+  metadata?: SessionHistoryItemMetadata;
 };
 
 export type SessionEntry = {
@@ -182,7 +226,36 @@ export type SessionEntry = {
   skillsSnapshot?: SessionSkillSnapshot;
   systemPromptReport?: SessionSystemPromptReport;
   acp?: SessionAcpMeta;
+  /**
+   * LRU-ordered history of past sessionIds for this SessionKey.
+   * Tail = most recently deactivated. Used by `/sessions` and `/session <n>`
+   * to switch between conversations in chat channels.
+   */
+  sessionHistory?: SessionHistoryItem[];
 };
+
+export function buildSessionHistoryMetadata(entry: SessionEntry): SessionHistoryItemMetadata {
+  return {
+    systemSent: entry.systemSent,
+    thinkingLevel: entry.thinkingLevel,
+    verboseLevel: entry.verboseLevel,
+    reasoningLevel: entry.reasoningLevel,
+    ttsAuto: entry.ttsAuto,
+    modelOverride: entry.modelOverride,
+    providerOverride: entry.providerOverride,
+    label: entry.label,
+    inputTokens: entry.inputTokens,
+    outputTokens: entry.outputTokens,
+    cacheRead: entry.cacheRead,
+    cacheWrite: entry.cacheWrite,
+    totalTokens: entry.totalTokens,
+    totalTokensFresh: entry.totalTokensFresh,
+    contextTokens: entry.contextTokens,
+    compactionCount: entry.compactionCount,
+    memoryFlushAt: entry.memoryFlushAt,
+    memoryFlushCompactionCount: entry.memoryFlushCompactionCount,
+  };
+}
 
 function normalizeRuntimeField(value: string | undefined): string | undefined {
   const trimmed = value?.trim();

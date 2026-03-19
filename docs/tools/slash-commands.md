@@ -83,6 +83,8 @@ Text + native (when enabled):
 - `/btw <question>` (ask an ephemeral side question about the current session without changing future session context; see [/tools/btw](/tools/btw))
 - `/export-session [path]` (alias: `/export`) (export current session to HTML with full system prompt)
 - `/whoami` (show your sender id; alias: `/id`)
+- `/session <number|sessionId|back>` (switch to a previous session in the current chat, or jump back to the most recently deactivated one)
+- `/sessions` (list available sessions for the current chat)
 - `/session idle <duration|off>` (manage inactivity auto-unfocus for focused thread bindings)
 - `/session max-age <duration|off>` (manage hard max-age auto-unfocus for focused thread bindings)
 - `/subagents list|kill|log|info|send|steer|spawn` (inspect, control, or spawn sub-agent runs for the current session)
