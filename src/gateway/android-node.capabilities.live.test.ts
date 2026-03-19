@@ -8,6 +8,7 @@ import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-cha
 import { buildGatewayConnectionDetails } from "./call.js";
 import { GatewayClient } from "./client.js";
 import { resolveGatewayCredentialsFromConfig } from "./credentials.js";
+import { resolveNodeCommandAllowlist } from "./node-command-policy.js";
 
 const LIVE = isTruthyEnvValue(process.env.LIVE) || isTruthyEnvValue(process.env.OPENCLAW_LIVE_TEST);
 const LIVE_ANDROID_NODE = isTruthyEnvValue(process.env.OPENCLAW_LIVE_ANDROID_NODE);
@@ -62,6 +63,14 @@ function parseErrorCode(message: string): string {
     return head;
   }
   return "UNKNOWN";
+}
+
+function readGatewayErrorCode(err: unknown, fallbackMessage: string): string {
+  const byField = readString(asRecord(err).gatewayCode);
+  if (byField) {
+    return byField;
+  }
+  return parseErrorCode(fallbackMessage);
 }
 
 function assertObjectPayload(command: string, payload: unknown): Record<string, unknown> {
@@ -212,6 +221,16 @@ const COMMAND_PROFILES: Record<string, CommandProfile> = {
     timeoutMs: 20_000,
     outcome: "error",
     allowedErrorCodes: ["INVALID_REQUEST"],
+  },
+  "sms.search": {
+    buildParams: () => ({}),
+    timeoutMs: 20_000,
+    outcome: "success",
+    onSuccess: (payload) => {
+      const obj = assertObjectPayload("sms.search", payload);
+      expect(typeof obj.count === "number" || typeof obj.count === "string").toBe(true);
+      expect(Array.isArray(obj.messages)).toBe(true);
+    },
   },
   "debug.logs": {
     buildParams: () => ({}),
@@ -371,7 +390,7 @@ async function invokeNodeCommand(params: {
     return {
       command: params.command,
       ok: false,
-      errorCode: parseErrorCode(message),
+      errorCode: readGatewayErrorCode(err, message),
       errorMessage: message,
       durationMs: Math.max(1, Date.now() - startedAt),
     };
@@ -447,10 +466,19 @@ describeLive("android node capability integration (preconditioned)", () => {
     const describeObj = asRecord(describeRaw);
     const commands = readStringArray(describeObj.commands);
     expect(commands.length, "node.describe advertised no commands").toBeGreaterThan(0);
-    commandsToRun = commands.filter((command) => !SKIPPED_INTERACTIVE_COMMANDS.has(command));
+
+    const cfg = loadConfig();
+    const allowlist = resolveNodeCommandAllowlist(cfg, {
+      platform: target.platform,
+      deviceFamily: target.deviceFamily,
+    });
+
+    commandsToRun = commands.filter(
+      (command) => allowlist.has(command) && !SKIPPED_INTERACTIVE_COMMANDS.has(command),
+    );
     expect(
       commandsToRun.length,
-      "node.describe advertised only interactive commands (nothing runnable in CI/dev integration mode)",
+      "node.describe advertised no non-interactive allowlisted commands (check gateway.nodes allowCommands/denyCommands)",
     ).toBeGreaterThan(0);
 
     const missingProfiles = commandsToRun.filter((command) => !COMMAND_PROFILES[command]);
