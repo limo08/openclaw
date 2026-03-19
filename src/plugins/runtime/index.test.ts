@@ -113,6 +113,8 @@ describe("plugin runtime command execution", () => {
     const runtime = createPluginRuntime();
     setGatewaySubagentRuntime({
       run: vi.fn(),
+      enqueue: vi.fn(),
+      abort: vi.fn(),
       waitForRun: vi.fn(),
       getSessionMessages: vi.fn(),
       getSession: vi.fn(),
@@ -130,6 +132,8 @@ describe("plugin runtime command execution", () => {
 
     setGatewaySubagentRuntime({
       run,
+      enqueue: vi.fn(),
+      abort: vi.fn(),
       waitForRun: vi.fn(),
       getSessionMessages: vi.fn(),
       getSession: vi.fn(),
@@ -140,5 +144,31 @@ describe("plugin runtime command execution", () => {
       runId: "run-1",
     });
     expect(run).toHaveBeenCalledWith({ sessionKey: "s-2", message: "hello" });
+  });
+
+  it("uses the provided subagent runtime when available", async () => {
+    const subagent = {
+      run: vi.fn(async () => ({ runId: "run-1" })),
+      enqueue: vi.fn(async () => ({ runId: "run-1" })),
+      abort: vi.fn(async () => ({ aborted: true })),
+      waitForRun: vi.fn(async () => ({ status: "ok" as const })),
+      getSessionMessages: vi.fn(async () => ({ messages: [] })),
+      getSession: vi.fn(async () => ({ messages: [] })),
+      deleteSession: vi.fn(async () => undefined),
+    };
+
+    const runtime = createPluginRuntime({ subagent });
+    await expect(runtime.subagent.run({ sessionKey: "s", message: "hi" })).resolves.toEqual({
+      runId: "run-1",
+    });
+    await expect(runtime.subagent.enqueue({ sessionKey: "s", message: "hi" })).resolves.toEqual({
+      runId: "run-1",
+    });
+    await expect(runtime.subagent.abort({ runId: "run-1" })).resolves.toEqual({
+      aborted: true,
+    });
+    expect(subagent.run).toHaveBeenCalledWith({ sessionKey: "s", message: "hi" });
+    expect(subagent.enqueue).toHaveBeenCalledWith({ sessionKey: "s", message: "hi" });
+    expect(subagent.abort).toHaveBeenCalledWith({ runId: "run-1" });
   });
 });
