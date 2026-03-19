@@ -35,6 +35,35 @@ struct VoiceWakeRuntimeTests {
         #expect(VoiceWakeRuntime._testHasContentAfterTrigger(text, triggers: triggers))
     }
 
+    @Test func `trigger only allows filler before trigger`() {
+        let triggers = ["openclaw"]
+        let text = "uh openclaw"
+        #expect(VoiceWakeRuntime._testIsTriggerOnly(text, triggers: triggers))
+    }
+
+    @Test func `matched trigger finds trigger not at transcript start`() {
+        let triggers = ["openclaw"]
+        let text = "uh openclaw"
+        #expect(VoiceWakeRuntime._testMatchedTriggerWord(text, triggers: triggers) == "openclaw")
+    }
+
+    @Test func `matched trigger prefers most specific overlapping phrase`() {
+        let triggers = ["openclaw", "hey openclaw"]
+        let text = "hey openclaw"
+        #expect(VoiceWakeRuntime._testMatchedTriggerWord(text, triggers: triggers) == "hey openclaw")
+    }
+
+    @Test func `text only fallback populates matched trigger`() {
+        let transcript = "hey openclaw do thing"
+        let config = WakeWordGateConfig(triggers: ["openclaw"], minCommandLength: 1)
+        let match = VoiceWakeRecognitionDebugSupport.textOnlyFallbackMatch(
+            transcript: transcript,
+            triggers: ["openclaw"],
+            config: config,
+            trimWake: VoiceWakeRuntime._testTrimmedAfterTrigger)
+        #expect(match?.trigger == "openclaw")
+    }
+
     @Test func `trims after chinese trigger keeps post speech`() {
         let triggers = ["小爪", "openclaw"]
         let text = "嘿 小爪 帮我打开设置"
