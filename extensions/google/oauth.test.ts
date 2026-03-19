@@ -11,11 +11,11 @@ import {
 } from "./oauth.http.js";
 import { loginGeminiCliOAuth } from "./oauth.js";
 
-const fetchWithSsrFGuardMock = async (params: {
+async function fetchWithSsrFGuardMock(params: {
   url: string;
   init?: RequestInit;
   fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-}) => {
+}) {
   const fetchImpl = params.fetchImpl ?? globalThis.fetch;
   const response = await fetchImpl(params.url, params.init);
   return {
@@ -23,11 +23,15 @@ const fetchWithSsrFGuardMock = async (params: {
     finalUrl: params.url,
     release: async () => {},
   };
-};
+}
 
-vi.mock("openclaw/plugin-sdk/infra-runtime", () => ({
-  fetchWithSsrFGuard: fetchWithSsrFGuardMock,
-}));
+vi.mock("openclaw/plugin-sdk/infra-runtime", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("openclaw/plugin-sdk/infra-runtime")>();
+  return {
+    ...actual,
+    fetchWithSsrFGuard: fetchWithSsrFGuardMock,
+  };
+});
 
 vi.mock("../../src/infra/net/fetch-guard.js", () => ({
   fetchWithSsrFGuard: async (params: {
