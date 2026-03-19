@@ -2,6 +2,7 @@ import { getChannelPlugin, listChannelPlugins } from "../channels/plugins/index.
 import type { ChannelId, ChannelPlugin } from "../channels/plugins/types.js";
 import { normalizeAnyChannelId } from "../channels/registry.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { getActivePluginRegistryVersion } from "../plugins/runtime.js";
 import { normalizeStringEntries } from "../shared/string-normalization.js";
 import {
   INTERNAL_MESSAGE_CHANNEL,
@@ -20,7 +21,10 @@ export type CommandAuthorization = {
   to?: string;
 };
 
-const ownerAllowFromListCache = new WeakMap<ReadonlyArray<string | number>, Map<string, string[]>>();
+const ownerAllowFromListCache = new WeakMap<
+  OpenClawConfig,
+  WeakMap<ReadonlyArray<string | number>, Map<string, string[]>>
+>();
 
 function resolveProviderFromContext(ctx: MsgContext, cfg: OpenClawConfig): ChannelId | undefined {
   const explicitMessageChannel =
@@ -116,9 +120,10 @@ function resolveOwnerAllowFromList(params: {
   if (!Array.isArray(raw) || raw.length === 0) {
     return [];
   }
-  const cacheKey = `${params.plugin?.id ?? ""}\u0000${params.accountId ?? ""}\u0000${params.providerId ?? ""}`;
-  const cached = ownerAllowFromListCache.get(raw)?.get(cacheKey);
-  if (cached) {
+  const registryVersion = getActivePluginRegistryVersion();
+  const cacheKey = `${registryVersion}\u0000${params.plugin?.id ?? ""}\u0000${params.accountId ?? ""}\u0000${params.providerId ?? ""}`;
+  const cached = ownerAllowFromListCache.get(params.cfg)?.get(raw)?.get(cacheKey);
+  if (cached !== undefined) {
     return cached;
   }
   const filtered: string[] = [];
@@ -150,10 +155,15 @@ function resolveOwnerAllowFromList(params: {
     accountId: params.accountId,
     allowFrom: filtered,
   });
-  let cachedByKey = ownerAllowFromListCache.get(raw);
+  let cachedByConfig = ownerAllowFromListCache.get(params.cfg);
+  if (!cachedByConfig) {
+    cachedByConfig = new WeakMap<ReadonlyArray<string | number>, Map<string, string[]>>();
+    ownerAllowFromListCache.set(params.cfg, cachedByConfig);
+  }
+  let cachedByKey = cachedByConfig.get(raw);
   if (!cachedByKey) {
     cachedByKey = new Map<string, string[]>();
-    ownerAllowFromListCache.set(raw, cachedByKey);
+    cachedByConfig.set(raw, cachedByKey);
   }
   cachedByKey.set(cacheKey, formatted);
   return formatted;
