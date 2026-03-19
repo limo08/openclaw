@@ -4,6 +4,7 @@ import type { CoreConfig } from "../../types.js";
 import { getMatrixLogService } from "../sdk-runtime.js";
 import { resolveMatrixAuth } from "./config.js";
 import { createMatrixClient } from "./create-client.js";
+import { configureMatrixProxy } from "./proxy.js";
 import { startMatrixClientWithGrace } from "./startup.js";
 import { DEFAULT_ACCOUNT_KEY } from "./storage.js";
 import type { MatrixAuth } from "./types.js";
@@ -33,9 +34,12 @@ function buildSharedClientKey(auth: MatrixAuth, accountId?: string | null): stri
 
 async function createSharedMatrixClient(params: {
   auth: MatrixAuth;
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   accountId?: string | null;
 }): Promise<SharedMatrixClientState> {
+  // Configure proxy before creating Matrix client (supports HTTP_PROXY, HTTPS_PROXY, MATRIX_PROXY)
+  configureMatrixProxy(params.env ?? process.env);
   const client = await createMatrixClient({
     homeserver: params.auth.homeserver,
     userId: params.auth.userId,
@@ -44,6 +48,9 @@ async function createSharedMatrixClient(params: {
     localTimeoutMs: params.timeoutMs,
     accountId: params.accountId,
   });
+  if (typeof params.timeoutMs === "number" && Number.isFinite(params.timeoutMs)) {
+    client.syncingTimeout = params.timeoutMs;
+  }
   return {
     client,
     key: buildSharedClientKey(params.auth, params.accountId),
@@ -152,6 +159,7 @@ export async function resolveSharedMatrixClient(
   // Create a new client for this account
   const createPromise = createSharedMatrixClient({
     auth,
+    env: params.env,
     timeoutMs: params.timeoutMs,
     accountId,
   });
