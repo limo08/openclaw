@@ -81,7 +81,10 @@ import { resolveSandboxContext } from "../../sandbox.js";
 import { resolveSandboxRuntimeStatus } from "../../sandbox/runtime-status.js";
 import { repairSessionFileIfNeeded } from "../../session-file-repair.js";
 import { guardSessionManager } from "../../session-tool-result-guard-wrapper.js";
-import { sanitizeToolUseResultPairing } from "../../session-transcript-repair.js";
+import {
+  sanitizeToolCallInputs,
+  sanitizeToolUseResultPairing,
+} from "../../session-transcript-repair.js";
 import {
   acquireSessionWriteLock,
   resolveSessionLockMaxHoldFromTimeout,
@@ -721,7 +724,11 @@ function trimWhitespaceFromToolCallNamesInMessage(
     if (!block || typeof block !== "object") {
       continue;
     }
-    const typedBlock = block as { type?: unknown; name?: unknown; id?: unknown };
+    const typedBlock = block as {
+      type?: unknown;
+      name?: unknown;
+      id?: unknown;
+    };
     if (!isToolCallBlockType(typedBlock.type)) {
       continue;
     }
@@ -1147,7 +1154,10 @@ function wrapStreamDecodeXaiToolCallArguments(
         async next() {
           const result = await iterator.next();
           if (!result.done && result.value && typeof result.value === "object") {
-            const event = result.value as { partial?: unknown; message?: unknown };
+            const event = result.value as {
+              partial?: unknown;
+              message?: unknown;
+            };
             decodeXaiToolCallArgumentsInMessage(event.partial);
             decodeXaiToolCallArgumentsInMessage(event.message);
           }
@@ -1327,7 +1337,10 @@ export function buildAfterTurnRuntimeContext(params: {
   });
 }
 
-function summarizeMessagePayload(msg: AgentMessage): { textChars: number; imageBlocks: number } {
+function summarizeMessagePayload(msg: AgentMessage): {
+  textChars: number;
+  imageBlocks: number;
+} {
   const content = (msg as { content?: unknown }).content;
   if (typeof content === "string") {
     return { textChars: content.length, imageBlocks: 0 };
@@ -1452,7 +1465,10 @@ export async function runEmbeddedAttempt(
         config: params.config,
         sessionKey: params.sessionKey,
         sessionId: params.sessionId,
-        warn: makeBootstrapWarn({ sessionLabel, warn: (message) => log.warn(message) }),
+        warn: makeBootstrapWarn({
+          sessionLabel,
+          warn: (message) => log.warn(message),
+        }),
         contextMode: params.bootstrapContextMode,
         runKind: params.bootstrapContextRunKind,
       });
@@ -1591,7 +1607,10 @@ export async function runEmbeddedAttempt(
       tools: effectiveTools,
       clientTools,
     });
-    logToolSchemasForGoogle({ tools: effectiveTools, provider: params.provider });
+    logToolSchemasForGoogle({
+      tools: effectiveTools,
+      provider: params.provider,
+    });
 
     const machineName = await getMachineDisplayName();
     const runtimeChannel = normalizeMessageChannel(params.messageChannel ?? params.messageProvider);
@@ -1863,7 +1882,10 @@ export async function runEmbeddedAttempt(
       });
 
       // Add client tools (OpenResponses hosted tools) to customTools
-      let clientToolCallDetected: { name: string; params: Record<string, unknown> } | null = null;
+      let clientToolCallDetected: {
+        name: string;
+        params: Record<string, unknown>;
+      } | null = null;
       const clientToolLoopDetection = resolveToolLoopDetectionConfig({
         cfg: params.config,
         agentId: sessionAgentId,
@@ -2063,6 +2085,41 @@ export async function runEmbeddedAttempt(
         };
       }
 
+      // Gemini 3 (preview) can return functionCall blocks with empty name fields.
+      // sanitizeSessionHistory only runs at attempt start; tool call → result cycles
+      // within the agent loop bypass it. Re-run tool name repair on every outbound
+      // request so empty-name tool calls and their orphaned tool results are dropped
+      // before they reach the Gemini API and trigger a 400 INVALID_ARGUMENT error:
+      //   "GenerateContentRequest.contents[N].parts[0].function_response.name:
+      //    Name cannot be empty."
+      // See: https://github.com/openclaw/openclaw/issues/16263
+      if (transcriptPolicy.repairToolNamesOnEveryTurn) {
+        const inner = activeSession.agent.streamFn;
+        const repairAllowedToolNames = allowedToolNames;
+        activeSession.agent.streamFn = (model, context, options) => {
+          const ctx = context as unknown as { messages?: unknown };
+          const messages = ctx?.messages;
+          if (!Array.isArray(messages)) {
+            return inner(model, context, options);
+          }
+          // Drop tool calls with empty/invalid names from assistant messages.
+          const repaired1 = sanitizeToolCallInputs(messages as AgentMessage[], {
+            allowedToolNames: repairAllowedToolNames,
+          });
+          // Fast path: nothing was dropped, no further work needed.
+          if (repaired1 === messages) {
+            return inner(model, context, options);
+          }
+          // Drop the now-orphaned tool results whose calls were removed above.
+          const repaired2 = sanitizeToolUseResultPairing(repaired1);
+          const nextContext = {
+            ...(context as unknown as Record<string, unknown>),
+            messages: repaired2,
+          } as unknown;
+          return inner(model, nextContext as typeof context, options);
+        };
+      }
+
       if (
         params.model.api === "openai-responses" ||
         params.model.api === "openai-codex-responses"
@@ -2088,7 +2145,9 @@ export async function runEmbeddedAttempt(
 
       const innerStreamFn = activeSession.agent.streamFn;
       activeSession.agent.streamFn = (model, context, options) => {
-        const signal = runAbortController.signal as AbortSignal & { reason?: unknown };
+        const signal = runAbortController.signal as AbortSignal & {
+          reason?: unknown;
+        };
         if (yieldDetected && signal.aborted && signal.reason === "sessions_yield") {
           return createYieldAbortedResponse(model) as unknown as Awaited<
             ReturnType<typeof innerStreamFn>
@@ -2578,7 +2637,11 @@ export async function runEmbeddedAttempt(
           // Only pass images option if there are actually images to pass
           // This avoids potential issues with models that don't expect the images parameter
           if (imageResult.images.length > 0) {
-            await abortable(activeSession.prompt(effectivePrompt, { images: imageResult.images }));
+            await abortable(
+              activeSession.prompt(effectivePrompt, {
+                images: imageResult.images,
+              }),
+            );
           } else {
             await abortable(activeSession.prompt(effectivePrompt));
           }
