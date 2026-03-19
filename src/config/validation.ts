@@ -520,15 +520,27 @@ function validateConfigObjectWithPluginsBase(
       issues.push({ path, message: `unknown memorySearch provider: ${provider}` });
       return;
     }
-    // Check if this is a loaded plugin embedding provider
+    // Check if this is a loaded plugin embedding provider OR in manifest
+    // First check active registry
     const pluginRegistry = getActivePluginRegistry();
-    const isKnownPlugin = pluginRegistry?.providers.some(
-      (entry) =>
+    const isKnownPlugin = pluginRegistry?.providers.some((entry) => {
+      const caps = entry.provider.routingCapabilities;
+      const capabilitiesArray = Array.isArray(caps) ? caps : [];
+      return (
         normalizeProviderId(entry.provider.id) === normalizeProviderId(provider) &&
-        entry.provider.routingCapabilities?.includes("embedding"),
-    );
+        capabilitiesArray.includes("embedding")
+      );
+    });
     if (isKnownPlugin) {
       return; // Known plugin embedding provider - validate at runtime
+    }
+    // Also check manifest registry for plugin IDs not yet loaded
+    const manifestRegistry = loadPluginManifestRegistry({ config });
+    const isKnownInManifest = manifestRegistry?.plugins.some((plugin) =>
+      plugin.providers.includes(normalizeProviderId(provider)),
+    );
+    if (isKnownInManifest) {
+      return; // Known in manifest - validate at runtime
     }
     // Reject unknown providers at config time
     issues.push({ path, message: `unknown memorySearch provider: ${provider}` });

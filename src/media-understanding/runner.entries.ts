@@ -493,14 +493,15 @@ export async function runProviderEntry(params: {
     let result: { text: string; model?: string };
 
     // Get auth for all providers (built-in and plugins)
-    // Don't require API key for plugins (they may be local engines without auth)
+    // Require API key if not a plugin OR if plugin doesn't implement this handler
+    const pluginImplementsHandler = isPluginProvider && provider?.describeImage;
     const imageAuth = await resolveProviderExecutionContext({
       providerId,
       cfg,
       entry,
       config: params.config,
       agentDir: params.agentDir,
-      requireApiKey: !isPluginProvider,
+      requireApiKey: !pluginImplementsHandler,
     });
 
     if (isPluginProvider && provider?.describeImage) {
@@ -588,13 +589,14 @@ export async function runProviderEntry(params: {
 
     // Get auth for all providers (built-in and plugins)
     // Require API key for built-in, allow plugins without keys (local engines)
+    const pluginImplementsAudio = isPluginProvider && provider?.transcribeAudio;
     const auth = await resolveProviderExecutionContext({
       providerId,
       cfg,
       entry,
       config: params.config,
       agentDir: params.agentDir,
-      requireApiKey: !isPluginProvider,
+      requireApiKey: !pluginImplementsAudio,
     });
     apiKeys = auth.apiKeys;
     baseUrl = auth.baseUrl;
@@ -680,13 +682,14 @@ export async function runProviderEntry(params: {
 
   // Get auth for all providers (built-in and plugins)
   // Require API key for built-in, allow plugins without keys (local engines)
+  const pluginImplementsVideo = isPluginProvider && provider?.describeVideo;
   const videoAuth = await resolveProviderExecutionContext({
     providerId,
     cfg,
     entry,
     config: params.config,
     agentDir: params.agentDir,
-    requireApiKey: !isPluginProvider,
+    requireApiKey: !pluginImplementsVideo,
   });
   apiKeys = videoAuth.apiKeys;
   baseUrl = videoAuth.baseUrl;

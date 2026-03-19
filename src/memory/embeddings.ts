@@ -445,7 +445,7 @@ export async function createEmbeddingProvider(
     }
 
     // Try remote providers in order
-    // First, try any custom plugin providers (non-builtin IDs) with error recovery
+    // First, collect any custom plugin providers (non-builtin IDs)
     const customPlugins: { id: string; provider: EmbeddingProvider }[] = [];
     for (const [pid, pp] of Object.entries(pluginProviders)) {
       if (
@@ -456,13 +456,10 @@ export async function createEmbeddingProvider(
         customPlugins.push({ id: pid, provider: pp });
       }
     }
-    // Return first custom plugin - actual usability checked at runtime, not config time
-    // This avoids making real API calls during provider initialization
-    if (customPlugins.length > 0) {
-      return { provider: customPlugins[0].provider, requestedProvider };
-    }
 
-    // Then try built-in remote providers
+    // In auto mode, prefer built-in providers over custom plugins
+    // Custom plugins will be tried as fallback after built-ins fail
+    // Try built-in remote providers first
     for (const pid of REMOTE_EMBEDDING_PROVIDER_IDS) {
       // Check plugin first - but only return if plugin is actually usable
       const pp = pluginProviders[pid];
@@ -479,6 +476,12 @@ export async function createEmbeddingProvider(
         }
         missingKeyErrors.push(formatErrorMessage(err));
       }
+    }
+
+    // Built-ins failed or unavailable - try custom plugins as fallback
+    // Only reach here if all built-ins failed
+    if (customPlugins.length > 0) {
+      return { provider: customPlugins[0].provider, requestedProvider };
     }
 
     // All failed - return null for FTS-only mode
