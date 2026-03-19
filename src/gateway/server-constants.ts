@@ -21,15 +21,25 @@ export const __setMaxChatHistoryMessagesBytesForTest = (value?: number) => {
     maxChatHistoryMessagesBytes = value;
   }
 };
-export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 3_000;
+export const DEFAULT_HANDSHAKE_TIMEOUT_MS = 10_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
+const parseHandshakeTimeoutOverride = (value?: string) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_TIMER_DELAY_MS ? parsed : undefined;
+};
+
 export const getHandshakeTimeoutMs = () => {
   if (process.env.VITEST && process.env.OPENCLAW_TEST_HANDSHAKE_TIMEOUT_MS) {
-    const parsed = Number(process.env.OPENCLAW_TEST_HANDSHAKE_TIMEOUT_MS);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
+    return (
+      parseHandshakeTimeoutOverride(process.env.OPENCLAW_TEST_HANDSHAKE_TIMEOUT_MS) ??
+      DEFAULT_HANDSHAKE_TIMEOUT_MS
+    );
   }
-  return DEFAULT_HANDSHAKE_TIMEOUT_MS;
+  return (
+    parseHandshakeTimeoutOverride(process.env.OPENCLAW_HANDSHAKE_TIMEOUT_MS) ??
+    DEFAULT_HANDSHAKE_TIMEOUT_MS
+  );
 };
 export const TICK_INTERVAL_MS = 30_000;
 export const HEALTH_REFRESH_INTERVAL_MS = 60_000;
