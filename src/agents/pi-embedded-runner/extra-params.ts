@@ -24,6 +24,7 @@ import {
   shouldApplySiliconFlowThinkingOffCompat,
 } from "./moonshot-stream-wrappers.js";
 import {
+  createOpenAICompatContentNormalizationWrapper,
   createOpenAIFastModeWrapper,
   createOpenAIResponsesContextManagementWrapper,
   createOpenAIServiceTierWrapper,
@@ -294,6 +295,12 @@ export function applyExtraParamsToAgent(
     agent.streamFn,
     effectiveExtraParams,
   );
+
+  // Normalize text-only content arrays to plain strings in outbound
+  // openai-completions payloads. Many third-party OpenAI-compatible
+  // providers (NVIDIA, vLLM, Ollama, LiteLLM) reject the Anthropic-style
+  // [{type:"text", text:"..."}] format that pi-ai emits for user messages.
+  agent.streamFn = createOpenAICompatContentNormalizationWrapper(agent.streamFn);
 
   const rawParallelToolCalls = resolveAliasedParamValue(
     [resolvedExtraParams, override],
