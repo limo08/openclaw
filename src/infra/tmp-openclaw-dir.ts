@@ -48,7 +48,7 @@ export function resolvePreferredOpenClawTmpDir(
         return undefined;
       }
     });
-  const tmpdir = options.tmpdir ?? os.tmpdir;
+  const tmpdir = typeof options.tmpdir === "function" ? options.tmpdir : os.tmpdir;
   const uid = getuid();
 
   const isSecureDirForUser = (st: { mode?: number; uid?: number }): boolean => {

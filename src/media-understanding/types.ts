@@ -125,6 +125,11 @@ export type ImageDescriptionResult = {
   model?: string;
 };
 
+export type ImagesDescriptionResult = {
+  text: string;
+  model?: string;
+};
+
 export type TextToSpeechRequest = {
   text: string;
   model?: string;
@@ -151,5 +156,5 @@ export type MediaUnderstandingProvider = {
   transcribeAudio?: (req: AudioTranscriptionRequest) => Promise<AudioTranscriptionResult>;
   describeVideo?: (req: VideoDescriptionRequest) => Promise<VideoDescriptionResult>;
   describeImage?: (req: ImageDescriptionRequest) => Promise<ImageDescriptionResult>;
-  describeImages?: (req: ImagesDescriptionRequest) => Promise<ImageDescriptionResult>;
+  describeImages?: (req: ImagesDescriptionRequest) => Promise<ImagesDescriptionResult>;
 };
