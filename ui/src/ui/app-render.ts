@@ -659,6 +659,18 @@ export function renderApp(state: AppViewState) {
                 },
                 onConnect: () => state.connect(),
                 onRefresh: () => state.loadOverview(),
+                onOpenCortexPreview: () => {
+                  state.tab = "chat";
+                  state.chatMessage = "/cortex preview";
+                },
+                onOpenCortexConflicts: () => {
+                  state.tab = "chat";
+                  state.chatMessage = "/cortex conflicts";
+                },
+                onOpenCortexSync: () => {
+                  state.tab = "chat";
+                  state.chatMessage = "/cortex sync coding";
+                },
                 onNavigate: (tab) => state.setTab(tab as import("./navigation.ts").Tab),
                 onRefreshLogs: () => state.loadOverview(),
               })
@@ -1825,6 +1837,7 @@ export function renderApp(state: AppViewState) {
               })
             : nothing
         }
+
 
         ${
           state.tab === "aiAgents"

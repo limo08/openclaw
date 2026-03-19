@@ -688,6 +688,8 @@ describe("Feishu inbound debounce regressions", () => {
     await Promise.resolve();
     await Promise.resolve();
     await vi.advanceTimersByTimeAsync(25);
+    await Promise.resolve();
+    await Promise.resolve();
 
     const dispatched = expectSingleDispatchedEvent();
     expect(dispatched.message.message_id).toBe("om_new");
@@ -740,6 +742,8 @@ describe("Feishu inbound debounce regressions", () => {
     await vi.advanceTimersByTimeAsync(25);
     await enqueueDebouncedMessage(onMessage, event);
     await vi.advanceTimersByTimeAsync(25);
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(handleFeishuMessageMock).toHaveBeenCalledTimes(1);
   });
