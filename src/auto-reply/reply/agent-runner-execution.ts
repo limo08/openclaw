@@ -141,6 +141,7 @@ export async function runAgentTurnWithFallback(params: {
   let fallbackAttempts: RuntimeFallbackAttempt[] = [];
   let didResetAfterCompactionFailure = false;
   let didRetryTransientHttpError = false;
+  let didRetryAfterRoleOrderingConflict = false;
   let bootstrapPromptWarningSignaturesSeen = resolveBootstrapWarningSignaturesSeen(
     params.getActiveSessionEntry()?.systemPromptReport,
   );
@@ -517,11 +518,15 @@ export async function runAgentTurnWithFallback(params: {
       }
       if (embeddedError?.kind === "role_ordering") {
         const didReset = await params.resetSessionAfterRoleOrderingConflict(embeddedError.message);
+        if (didReset && !didRetryAfterRoleOrderingConflict) {
+          didRetryAfterRoleOrderingConflict = true;
+          continue;
+        }
         if (didReset) {
           return {
             kind: "final",
             payload: {
-              text: "⚠️ Message ordering conflict. I've reset the conversation - please try again.",
+              text: "⚠️ Message ordering conflict persists after reset. Use /new to start a fresh session.",
             },
           };
         }
@@ -552,11 +557,15 @@ export async function runAgentTurnWithFallback(params: {
       }
       if (isRoleOrderingError) {
         const didReset = await params.resetSessionAfterRoleOrderingConflict(message);
+        if (didReset && !didRetryAfterRoleOrderingConflict) {
+          didRetryAfterRoleOrderingConflict = true;
+          continue;
+        }
         if (didReset) {
           return {
             kind: "final",
             payload: {
-              text: "⚠️ Message ordering conflict. I've reset the conversation - please try again.",
+              text: "⚠️ Message ordering conflict persists after reset. Use /new to start a fresh session.",
             },
           };
         }
