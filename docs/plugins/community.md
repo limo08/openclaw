@@ -49,3 +49,8 @@ Use this format when adding entries:
   npm: `@icesword760/openclaw-wechat`
   repo: `https://github.com/icesword0760/openclaw-wechat`
   install: `openclaw plugins install @icesword760/openclaw-wechat`
+
+- **Workspace Sync & Backup** — Workspace cloud sync (mailbox, mirror, bisync modes) and encrypted backups via rclone. Supports Dropbox, Google Drive, OneDrive, S3, and 70+ providers. Zero LLM cost.
+  npm: `openclaw-workspace-sync`
+  repo: `https://github.com/ashbrener/openclaw-workspace-sync`
+  install: `openclaw plugins install openclaw-workspace-sync`
