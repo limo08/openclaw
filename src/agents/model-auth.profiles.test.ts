@@ -8,8 +8,10 @@ import { ensureAuthProfileStore } from "./auth-profiles.js";
 import {
   getApiKeyForModel,
   hasAvailableAuthForProvider,
+  GOOGLE_VERTEX_ADC_PLACEHOLDER_API_KEY,
   resolveApiKeyForProvider,
   resolveEnvApiKey,
+  shouldSetRuntimeApiKey,
 } from "./model-auth.js";
 
 const envVar = (...parts: string[]) => parts.join("_");
@@ -451,7 +453,6 @@ describe("getApiKeyForModel", () => {
       },
     );
   });
-
   it("resolveEnvApiKey('opencode-go') falls back to OPENCODE_ZEN_API_KEY", async () => {
     await withEnvAsync(
       {
@@ -505,5 +506,39 @@ describe("getApiKeyForModel", () => {
         expect(resolved?.source).toContain("VOLCANO_ENGINE_API_KEY");
       },
     );
+  });
+
+  it("resolveEnvApiKey('google-vertex') returns ADC placeholder when project, location, and credentials are set", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-google-vertex-"));
+    const credentialsPath = path.join(tempDir, "application_default_credentials.json");
+
+    try {
+      await fs.writeFile(credentialsPath, '{"type":"authorized_user"}\n', "utf8");
+
+      await withEnvAsync(
+        {
+          GOOGLE_APPLICATION_CREDENTIALS: credentialsPath,
+          GOOGLE_CLOUD_PROJECT: "test-project",
+          GOOGLE_CLOUD_LOCATION: "global",
+        },
+        async () => {
+          const resolved = resolveEnvApiKey("google-vertex");
+          expect(resolved).toEqual({
+            apiKey: GOOGLE_VERTEX_ADC_PLACEHOLDER_API_KEY,
+            source: "gcloud adc",
+          });
+        },
+      );
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not apply runtime api keys for google-vertex ADC placeholders", () => {
+    expect(shouldSetRuntimeApiKey("google-vertex", GOOGLE_VERTEX_ADC_PLACEHOLDER_API_KEY)).toBe(
+      false,
+    );
+    expect(shouldSetRuntimeApiKey("google", GOOGLE_VERTEX_ADC_PLACEHOLDER_API_KEY)).toBe(true);
+    expect(shouldSetRuntimeApiKey("google-vertex", "real-key")).toBe(true);
   });
 });

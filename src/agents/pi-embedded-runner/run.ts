@@ -40,6 +40,7 @@ import {
   ensureAuthProfileStore,
   getApiKeyForModel,
   resolveAuthProfileOrder,
+  shouldSetRuntimeApiKey,
   type ResolvedProviderAuth,
 } from "../model-auth.js";
 import { normalizeProviderId } from "../model-selection.js";
@@ -703,7 +704,9 @@ export async function runEmbeddedPiAgent(
         if (runtimeAuthHandled) {
           // Plugin-owned runtime auth already stored the exchanged credential.
         } else {
-          authStorage.setRuntimeApiKey(runtimeModel.provider, apiKeyInfo.apiKey);
+          if (shouldSetRuntimeApiKey(runtimeModel.provider, apiKeyInfo.apiKey)) {
+            authStorage.setRuntimeApiKey(runtimeModel.provider, apiKeyInfo.apiKey);
+          }
           runtimeAuthState = null;
         }
         lastProfileId = apiKeyInfo.profileId;
