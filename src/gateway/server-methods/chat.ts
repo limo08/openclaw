@@ -891,7 +891,7 @@ function nextChatSeq(context: { agentRunSeq: Map<string, number> }, runId: strin
 }
 
 function broadcastChatFinal(params: {
-  context: Pick<GatewayRequestContext, "broadcast" | "nodeSendToSession" | "agentRunSeq">;
+  context: Pick<GatewayRequestContext, "broadcast" | "agentRunSeq">;
   runId: string;
   sessionKey: string;
   message?: Record<string, unknown>;
@@ -908,7 +908,6 @@ function broadcastChatFinal(params: {
     message: stripInlineDirectiveTagsFromMessageForDisplay(strippedEnvelopeMessage),
   };
   params.context.broadcast("chat", payload);
-  params.context.nodeSendToSession(params.sessionKey, "chat", payload);
   params.context.agentRunSeq.delete(params.runId);
 }
 
@@ -940,7 +939,7 @@ function broadcastSideResult(params: {
 }
 
 function broadcastChatError(params: {
-  context: Pick<GatewayRequestContext, "broadcast" | "nodeSendToSession" | "agentRunSeq">;
+  context: Pick<GatewayRequestContext, "broadcast" | "agentRunSeq">;
   runId: string;
   sessionKey: string;
   errorMessage?: string;
@@ -954,7 +953,6 @@ function broadcastChatError(params: {
     errorMessage: params.errorMessage,
   };
   params.context.broadcast("chat", payload);
-  params.context.nodeSendToSession(params.sessionKey, "chat", payload);
   params.context.agentRunSeq.delete(params.runId);
 }
 
@@ -1594,7 +1592,6 @@ export const chatHandlers: GatewayRequestHandlers = {
       ),
     };
     context.broadcast("chat", chatPayload);
-    context.nodeSendToSession(rawSessionKey, "chat", chatPayload);
 
     respond(true, { ok: true, messageId: appended.messageId });
   },
