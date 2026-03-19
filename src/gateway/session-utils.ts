@@ -865,6 +865,7 @@ export function loadCombinedSessionStoreForGateway(cfg: OpenClawConfig): {
         canonicalKey,
       });
     }
+    ensureMainSessionKey(cfg, combined);
     return { storePath, store: combined };
   }
 
@@ -885,6 +886,8 @@ export function loadCombinedSessionStoreForGateway(cfg: OpenClawConfig): {
       });
     }
   }
+
+  ensureMainSessionKey(cfg, combined);
 
   const storePath =
     typeof storeConfig === "string" && storeConfig.trim() ? storeConfig.trim() : "(multiple)";
