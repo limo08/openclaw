@@ -531,6 +531,9 @@ describe("applyCustomApiConfig", () => {
     expect(result.providerIdRenamedFrom).toBeUndefined();
     const provider = result.config.models?.providers?.[oldProviderId];
     expect(provider?.baseUrl).toBe("https://my-resource.openai.azure.com/openai/v1");
+    expect(provider?.api).toBe("openai-responses");
+    expect(provider?.authHeader).toBe(false);
+    expect(provider?.headers).toEqual({ "api-key": "key789" });
   });
 
   it("does not add azure fields for non-azure URLs", () => {
