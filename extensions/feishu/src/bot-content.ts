@@ -248,9 +248,11 @@ export function checkBotMentioned(event: FeishuMessageLike, botOpenId?: string):
   if (!botOpenId) {
     return false;
   }
-  if ((event.message.content ?? "").includes("@_all")) {
-    return true;
-  }
+  // @_all (@所有人) is intentionally NOT treated as mentioning every bot here.
+  // Whether to respond to @所有人 is an opt-in decision controlled by the
+  // respondToAtAll config flag; the check is applied in handleFeishuMessage
+  // after the group config is resolved so that per-group and per-account
+  // settings are both honoured.
   const mentions = event.message.mentions ?? [];
   if (mentions.length > 0) {
     return mentions.some((mention) => mention.id.open_id === botOpenId);
@@ -259,6 +261,22 @@ export function checkBotMentioned(event: FeishuMessageLike, botOpenId?: string):
     return parsePostContent(event.message.content).mentionedOpenIds.some((id) => id === botOpenId);
   }
   return false;
+}
+
+/**
+ * Returns true when the Feishu message contains a real @所有人 (@_all) mention
+ * according to the structured mention metadata in `event.message.mentions`.
+ *
+ * Using the `mentions` array (rather than a raw substring search on
+ * `message.content`) prevents spoofing: a user can type the literal text
+ * "@_all" in a normal message without triggering an @所有人 broadcast — the
+ * Feishu server only inserts a `mentions` entry with `key === "@_all"` when
+ * the sender actually used the @所有人 mention (CWE-807).
+ */
+export function hasAtAllMention(event: FeishuMessageLike): boolean {
+  return (event.message.mentions ?? []).some(
+    (m) => m.key === "@_all" || m.id?.user_id === "all" || m.id?.open_id === "all",
+  );
 }
 
 export function normalizeMentions(
