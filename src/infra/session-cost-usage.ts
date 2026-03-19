@@ -67,6 +67,21 @@ const emptyTotals = (): CostUsageTotals => ({
   missingCostEntries: 0,
 });
 
+type DayKeyInterpretation =
+  | { mode: "gateway" | "utc" }
+  | { mode: "specific"; utcOffsetMinutes: number }
+  | { mode: "specific"; timeZone: string };
+
+const hasSpecificDayKeyTimeZone = (
+  interpretation: DayKeyInterpretation,
+): interpretation is { mode: "specific"; timeZone: string } =>
+  interpretation.mode === "specific" && "timeZone" in interpretation;
+
+const hasSpecificDayKeyUtcOffset = (
+  interpretation: DayKeyInterpretation,
+): interpretation is { mode: "specific"; utcOffsetMinutes: number } =>
+  interpretation.mode === "specific" && "utcOffsetMinutes" in interpretation;
+
 const toFiniteNumber = (value: unknown): number | undefined => {
   if (typeof value !== "number") {
     return undefined;
@@ -163,8 +178,47 @@ const parseTranscriptEntry = (entry: Record<string, unknown>): ParsedTranscriptE
   };
 };
 
-const formatDayKey = (date: Date): string =>
-  date.toLocaleDateString("en-CA", { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+const formatDateKeyFromUtcParts = (date: Date): string =>
+  `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+
+const formatDateKeyInTimeZone = (date: Date, timeZone: string): string => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      map[part.type] = part.value;
+    }
+  }
+  const year = map.year;
+  const month = map.month;
+  const day = map.day;
+  if (!year || !month || !day) {
+    return formatDateKeyFromUtcParts(date);
+  }
+  return `${year}-${month}-${day}`;
+};
+
+const formatDayKey = (date: Date, interpretation?: DayKeyInterpretation): string => {
+  if (!interpretation || interpretation.mode === "gateway") {
+    return formatDateKeyInTimeZone(date, Intl.DateTimeFormat().resolvedOptions().timeZone);
+  }
+  if (interpretation.mode === "utc") {
+    return formatDateKeyFromUtcParts(date);
+  }
+  if (hasSpecificDayKeyTimeZone(interpretation)) {
+    return formatDateKeyInTimeZone(date, interpretation.timeZone);
+  }
+  if (!hasSpecificDayKeyUtcOffset(interpretation)) {
+    return formatDateKeyFromUtcParts(date);
+  }
+  const shifted = new Date(date.getTime() + interpretation.utcOffsetMinutes * 60 * 1000);
+  return formatDateKeyFromUtcParts(shifted);
+};
 
 const computeLatencyStats = (values: number[]): SessionLatencyStats | undefined => {
   if (!values.length) {
@@ -293,6 +347,7 @@ export async function loadCostUsageSummary(params?: {
   days?: number; // Deprecated, for backwards compatibility
   config?: OpenClawConfig;
   agentId?: string;
+  dayKeyInterpretation?: DayKeyInterpretation;
 }): Promise<CostUsageSummary> {
   const now = new Date();
   let sinceTime: number;
@@ -343,7 +398,7 @@ export async function loadCostUsageSummary(params?: {
         if (!ts || ts < sinceTime || ts > untilTime) {
           return;
         }
-        const dayKey = formatDayKey(entry.timestamp ?? now);
+        const dayKey = formatDayKey(entry.timestamp ?? now, params?.dayKeyInterpretation);
         const bucket = dailyMap.get(dayKey) ?? emptyTotals();
         applyUsageTotals(bucket, entry.usage);
         if (entry.costBreakdown?.total !== undefined) {
@@ -467,6 +522,7 @@ export async function loadSessionCostSummary(params: {
   agentId?: string;
   startMs?: number;
   endMs?: number;
+  dayKeyInterpretation?: DayKeyInterpretation;
 }): Promise<SessionCostSummary | null> {
   const sessionFile =
     params.sessionFile ??
@@ -546,7 +602,10 @@ export async function loadSessionCostSummary(params: {
             latencyMs <= MAX_LATENCY_MS
           ) {
             latencyValues.push(latencyMs);
-            const dayKey = formatDayKey(entry.timestamp ?? new Date(ts));
+            const dayKey = formatDayKey(
+              entry.timestamp ?? new Date(ts),
+              params.dayKeyInterpretation,
+            );
             const dailyLatencies = dailyLatencyMap.get(dayKey) ?? [];
             dailyLatencies.push(latencyMs);
             dailyLatencyMap.set(dayKey, dailyLatencies);
@@ -571,7 +630,7 @@ export async function loadSessionCostSummary(params: {
       }
 
       if (entry.timestamp) {
-        const dayKey = formatDayKey(entry.timestamp);
+        const dayKey = formatDayKey(entry.timestamp, params.dayKeyInterpretation);
         activityDatesSet.add(dayKey);
         const daily = dailyMessageMap.get(dayKey) ?? {
           date: dayKey,
@@ -609,7 +668,7 @@ export async function loadSessionCostSummary(params: {
       }
 
       if (entry.timestamp) {
-        const dayKey = formatDayKey(entry.timestamp);
+        const dayKey = formatDayKey(entry.timestamp, params.dayKeyInterpretation);
         const entryTokens =
           (entry.usage.input ?? 0) +
           (entry.usage.output ?? 0) +
@@ -845,6 +904,10 @@ export async function loadSessionUsageTimeSeries(params: {
 
   return { sessionId: params.sessionId, points: sortedPoints };
 }
+
+export const __test = {
+  formatDayKey,
+};
 
 export async function loadSessionLogs(params: {
   sessionId?: string;

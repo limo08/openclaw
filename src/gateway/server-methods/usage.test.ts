@@ -87,6 +87,40 @@ describe("gateway usage helpers", () => {
     expect(range.endMs).toBe(endStart + dayMs - 1);
   });
 
+  it("parseDateRange uses IANA time zones for DST-shortened days", () => {
+    const range = __test.parseDateRange({
+      startDate: "2026-03-08",
+      endDate: "2026-03-08",
+      mode: "specific",
+      timeZone: "America/New_York",
+    });
+    expect(range.startMs).toBe(Date.UTC(2026, 2, 8, 5, 0, 0, 0));
+    expect(range.endMs).toBe(Date.UTC(2026, 2, 9, 3, 59, 59, 999));
+  });
+
+  it("parseDateRange uses IANA time zones for DST-lengthened days", () => {
+    const range = __test.parseDateRange({
+      startDate: "2026-11-01",
+      endDate: "2026-11-01",
+      mode: "specific",
+      timeZone: "America/New_York",
+    });
+    expect(range.startMs).toBe(Date.UTC(2026, 10, 1, 4, 0, 0, 0));
+    expect(range.endMs).toBe(Date.UTC(2026, 10, 2, 4, 59, 59, 999));
+  });
+
+  it("parseDateRange keeps rolling day windows aligned across DST changes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-09T12:00:00.000Z"));
+    const range = __test.parseDateRange({
+      days: 2,
+      mode: "specific",
+      timeZone: "America/New_York",
+    });
+    expect(range.startMs).toBe(Date.UTC(2026, 2, 8, 5, 0, 0, 0));
+    expect(range.endMs).toBe(Date.UTC(2026, 2, 10, 3, 59, 59, 999));
+  });
+
   it("parseDateRange falls back to UTC when specific mode offset is missing or invalid", () => {
     const missingOffset = __test.parseDateRange({
       startDate: "2026-02-01",
@@ -147,15 +181,44 @@ describe("gateway usage helpers", () => {
       startMs: 1,
       endMs: 2,
       config,
+      dayKeyInterpretation: { mode: "utc" },
     });
     const b = await __test.loadCostUsageSummaryCached({
       startMs: 1,
       endMs: 2,
       config,
+      dayKeyInterpretation: { mode: "utc" },
     });
 
     expect(a.totals.totalTokens).toBe(1);
     expect(b.totals.totalTokens).toBe(1);
     expect(vi.mocked(loadCostUsageSummary)).toHaveBeenCalledTimes(1);
+  });
+
+  it("loadCostUsageSummaryCached keys cache entries by day-key interpretation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-02-05T00:00:00.000Z"));
+
+    const config = {} as OpenClawConfig;
+    await __test.loadCostUsageSummaryCached({
+      startMs: 1,
+      endMs: 2,
+      config,
+      dayKeyInterpretation: { mode: "utc" },
+    });
+    await __test.loadCostUsageSummaryCached({
+      startMs: 1,
+      endMs: 2,
+      config,
+      dayKeyInterpretation: { mode: "specific", utcOffsetMinutes: 120 },
+    });
+    await __test.loadCostUsageSummaryCached({
+      startMs: 1,
+      endMs: 2,
+      config,
+      dayKeyInterpretation: { mode: "specific", timeZone: "America/New_York" },
+    });
+
+    expect(vi.mocked(loadCostUsageSummary)).toHaveBeenCalledTimes(3);
   });
 });

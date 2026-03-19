@@ -7,6 +7,7 @@ export type UsageState = {
   client: GatewayBrowserClient | null;
   connected: boolean;
   usageLoading: boolean;
+  usageRequestVersion: number;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;
   usageError: string | null;
@@ -20,6 +21,8 @@ export type UsageState = {
   usageTimeSeriesCursorEnd: number | null;
   usageSessionLogs: SessionLogEntry[] | null;
   usageSessionLogsLoading: boolean;
+  usageTimeSeriesRequestVersion: number;
+  usageSessionLogsRequestVersion: number;
   usageTimeZone: "local" | "utc";
   settings?: { gatewayUrl?: string };
 };
@@ -29,13 +32,17 @@ type DateInterpretationMode = "utc" | "gateway" | "specific";
 type UsageDateInterpretationParams = {
   mode: DateInterpretationMode;
   utcOffset?: string;
+  timeZone?: string;
 };
 
 const LEGACY_USAGE_DATE_PARAMS_STORAGE_KEY = "openclaw.control.usage.date-params.v1";
 const LEGACY_USAGE_DATE_PARAMS_DEFAULT_GATEWAY_KEY = "__default__";
 const LEGACY_USAGE_DATE_PARAMS_MODE_RE = /unexpected property ['"]mode['"]/i;
 const LEGACY_USAGE_DATE_PARAMS_OFFSET_RE = /unexpected property ['"]utcoffset['"]/i;
+const LEGACY_USAGE_DATE_PARAMS_TIME_ZONE_RE = /unexpected property ['"]timezone['"]/i;
 const LEGACY_USAGE_DATE_PARAMS_INVALID_RE = /invalid sessions\.usage params/i;
+const LEGACY_USAGE_DATE_PARAMS_UNSUPPORTED_MESSAGE =
+  "This gateway is too old to support Usage time zone filters. Upgrade the gateway to use the Local/UTC toggle.";
 
 let legacyUsageDateParamsCache: Set<string> | null = null;
 
@@ -123,9 +130,19 @@ function isLegacyDateInterpretationUnsupportedError(err: unknown): boolean {
   return (
     LEGACY_USAGE_DATE_PARAMS_INVALID_RE.test(message) &&
     (LEGACY_USAGE_DATE_PARAMS_MODE_RE.test(message) ||
-      LEGACY_USAGE_DATE_PARAMS_OFFSET_RE.test(message))
+      LEGACY_USAGE_DATE_PARAMS_OFFSET_RE.test(message) ||
+      LEGACY_USAGE_DATE_PARAMS_TIME_ZONE_RE.test(message))
   );
 }
+
+const resolveLocalTimeZoneName = (): string | undefined => {
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim();
+    return resolved ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 const formatUtcOffset = (timezoneOffsetMinutes: number): string => {
   // `Date#getTimezoneOffset()` is minutes to add to local time to reach UTC.
@@ -149,6 +166,13 @@ const buildDateInterpretationParams = (
   }
   if (timeZone === "utc") {
     return { mode: "utc" };
+  }
+  const localTimeZoneName = resolveLocalTimeZoneName();
+  if (localTimeZoneName) {
+    return {
+      mode: "specific",
+      timeZone: localTimeZoneName,
+    };
   }
   return {
     mode: "specific",
@@ -176,6 +200,10 @@ function toErrorMessage(err: unknown): string {
   return "request failed";
 }
 
+function createLegacyUsageDateInterpretationUnsupportedError(): Error {
+  return new Error(LEGACY_USAGE_DATE_PARAMS_UNSUPPORTED_MESSAGE);
+}
+
 export async function loadUsage(
   state: UsageState,
   overrides?: {
@@ -188,17 +216,21 @@ export async function loadUsage(
   if (!client || !state.connected) {
     return;
   }
-  if (state.usageLoading) {
-    return;
-  }
+  const requestVersion = bumpRequestVersion(state.usageRequestVersion);
+  state.usageRequestVersion = requestVersion;
   state.usageLoading = true;
   state.usageError = null;
   try {
     const startDate = overrides?.startDate ?? state.usageStartDate;
     const endDate = overrides?.endDate ?? state.usageEndDate;
+    const includeDateInterpretation = shouldSendLegacyDateInterpretation(state);
+    if (!includeDateInterpretation) {
+      throw createLegacyUsageDateInterpretationUnsupportedError();
+    }
+    const usageTimeZone = state.usageTimeZone;
     const runUsageRequests = async (includeDateInterpretation: boolean) => {
       const dateInterpretation = buildDateInterpretationParams(
-        state.usageTimeZone,
+        usageTimeZone,
         includeDateInterpretation,
       );
       return await Promise.all([
@@ -218,6 +250,9 @@ export async function loadUsage(
     };
 
     const applyUsageResults = (sessionsRes: unknown, costRes: unknown) => {
+      if (state.usageRequestVersion !== requestVersion) {
+        return;
+      }
       if (sessionsRes) {
         state.usageResult = sessionsRes as SessionsUsageResult;
       }
@@ -226,30 +261,33 @@ export async function loadUsage(
       }
     };
 
-    const includeDateInterpretation = shouldSendLegacyDateInterpretation(state);
     try {
       const [sessionsRes, costRes] = await runUsageRequests(includeDateInterpretation);
       applyUsageResults(sessionsRes, costRes);
     } catch (err) {
       if (includeDateInterpretation && isLegacyDateInterpretationUnsupportedError(err)) {
-        // Older gateways reject `mode`/`utcOffset` in `sessions.usage`.
-        // Remember this per gateway and retry once without those fields.
+        // Older gateways reject date-interpretation fields in `sessions.usage`.
+        // Remember this per gateway and fail loudly instead of silently changing semantics.
         rememberLegacyDateInterpretation(state);
-        const [sessionsRes, costRes] = await runUsageRequests(false);
-        applyUsageResults(sessionsRes, costRes);
+        throw createLegacyUsageDateInterpretationUnsupportedError();
       } else {
         throw err;
       }
     }
   } catch (err) {
-    state.usageError = toErrorMessage(err);
+    if (state.usageRequestVersion === requestVersion) {
+      state.usageError = toErrorMessage(err);
+    }
   } finally {
-    state.usageLoading = false;
+    if (state.usageRequestVersion === requestVersion) {
+      state.usageLoading = false;
+    }
   }
 }
 
 export const __test = {
   formatUtcOffset,
+  resolveLocalTimeZoneName,
   buildDateInterpretationParams,
   toErrorMessage,
   isLegacyDateInterpretationUnsupportedError,
@@ -261,49 +299,76 @@ export const __test = {
   },
 };
 
+function bumpRequestVersion(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) ? value + 1 : 1;
+}
+
+export function resetSessionUsageDetails(state: UsageState) {
+  state.usageTimeSeriesRequestVersion = bumpRequestVersion(state.usageTimeSeriesRequestVersion);
+  state.usageSessionLogsRequestVersion = bumpRequestVersion(state.usageSessionLogsRequestVersion);
+  state.usageTimeSeriesLoading = false;
+  state.usageSessionLogsLoading = false;
+  state.usageTimeSeries = null;
+  state.usageSessionLogs = null;
+}
+
 export async function loadSessionTimeSeries(state: UsageState, sessionKey: string) {
-  if (!state.client || !state.connected) {
+  const client = state.client;
+  if (!client || !state.connected) {
     return;
   }
-  if (state.usageTimeSeriesLoading) {
-    return;
-  }
+  const requestVersion = bumpRequestVersion(state.usageTimeSeriesRequestVersion);
+  state.usageTimeSeriesRequestVersion = requestVersion;
   state.usageTimeSeriesLoading = true;
   state.usageTimeSeries = null;
   try {
-    const res = await state.client.request("sessions.usage.timeseries", { key: sessionKey });
+    const res = await client.request("sessions.usage.timeseries", { key: sessionKey });
+    if (state.usageTimeSeriesRequestVersion !== requestVersion) {
+      return;
+    }
     if (res) {
       state.usageTimeSeries = res as SessionUsageTimeSeries;
     }
   } catch {
     // Silently fail - time series is optional
-    state.usageTimeSeries = null;
+    if (state.usageTimeSeriesRequestVersion === requestVersion) {
+      state.usageTimeSeries = null;
+    }
   } finally {
-    state.usageTimeSeriesLoading = false;
+    if (state.usageTimeSeriesRequestVersion === requestVersion) {
+      state.usageTimeSeriesLoading = false;
+    }
   }
 }
 
 export async function loadSessionLogs(state: UsageState, sessionKey: string) {
-  if (!state.client || !state.connected) {
+  const client = state.client;
+  if (!client || !state.connected) {
     return;
   }
-  if (state.usageSessionLogsLoading) {
-    return;
-  }
+  const requestVersion = bumpRequestVersion(state.usageSessionLogsRequestVersion);
+  state.usageSessionLogsRequestVersion = requestVersion;
   state.usageSessionLogsLoading = true;
   state.usageSessionLogs = null;
   try {
-    const res = await state.client.request("sessions.usage.logs", {
+    const res = await client.request("sessions.usage.logs", {
       key: sessionKey,
       limit: 1000,
     });
+    if (state.usageSessionLogsRequestVersion !== requestVersion) {
+      return;
+    }
     if (res && Array.isArray((res as { logs: SessionLogEntry[] }).logs)) {
       state.usageSessionLogs = (res as { logs: SessionLogEntry[] }).logs;
     }
   } catch {
     // Silently fail - logs are optional
-    state.usageSessionLogs = null;
+    if (state.usageSessionLogsRequestVersion === requestVersion) {
+      state.usageSessionLogs = null;
+    }
   } finally {
-    state.usageSessionLogsLoading = false;
+    if (state.usageSessionLogsRequestVersion === requestVersion) {
+      state.usageSessionLogsLoading = false;
+    }
   }
 }

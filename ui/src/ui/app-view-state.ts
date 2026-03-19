@@ -193,6 +193,7 @@ export type AppViewState = {
   sessionsPageSize: number;
   sessionsActionsOpenKey: string | null;
   usageLoading: boolean;
+  usageRequestVersion: number;
   usageResult: SessionsUsageResult | null;
   usageCostSummary: CostUsageSummary | null;
   usageError: string | null;
@@ -207,10 +208,12 @@ export type AppViewState = {
   usageTimeSeriesBreakdownMode: "total" | "by-type";
   usageTimeSeries: SessionUsageTimeSeries | null;
   usageTimeSeriesLoading: boolean;
+  usageTimeSeriesRequestVersion: number;
   usageTimeSeriesCursorStart: number | null;
   usageTimeSeriesCursorEnd: number | null;
   usageSessionLogs: SessionLogEntry[] | null;
   usageSessionLogsLoading: boolean;
+  usageSessionLogsRequestVersion: number;
   usageSessionLogsExpanded: boolean;
   usageQuery: string;
   usageQueryDraft: string;

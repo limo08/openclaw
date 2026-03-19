@@ -345,6 +345,9 @@ export class OpenClawApp extends LitElement {
 
   // Non-reactive (don’t trigger renders just for timer bookkeeping).
   usageQueryDebounceTimer: number | null = null;
+  usageRequestVersion = 0;
+  usageTimeSeriesRequestVersion = 0;
+  usageSessionLogsRequestVersion = 0;
 
   @state() cronLoading = false;
   @state() cronJobsLoadingMore = false;
