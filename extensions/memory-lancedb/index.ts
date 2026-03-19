@@ -461,6 +461,12 @@ export default definePluginEntry({
               };
             }
 
+            // Full UUIDs are shown intentionally so the user (or AI assistant)
+            // can copy an exact memoryId into a follow-up memory_forget call
+            // with { memoryId } for targeted deletion.  The memory store is
+            // local, personal data — enumeration risk is an accepted trade-off
+            // for correct UX.  Truncating IDs (as in prior code) forced users
+            // to re-query just to get a full ID, which was the real bug.
             const list = results
               .map((r) => `- [${r.entry.id}] ${r.entry.text.slice(0, 60)}...`)
               .join("\n");
