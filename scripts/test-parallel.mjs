@@ -401,6 +401,7 @@ const resolveFilterMatches = (fileFilter) => {
   }
   return allKnownTestFiles.filter((file) => file.includes(normalizedFilter));
 };
+const isThreadSingletonUnitFile = (fileFilter) => unitThreadSingletonFiles.includes(fileFilter);
 const isVmForkSingletonUnitFile = (fileFilter) => unitVmForkSingletonFiles.includes(fileFilter);
 const shouldForceForkPoolForFilters = (filters) =>
   filters.some((filter) => filter.startsWith("src/plugins/contracts/"));
