@@ -1,5 +1,6 @@
 import type { TSchema } from "@sinclair/typebox";
 import {
+  AgentAbortParamsSchema,
   AgentEventSchema,
   AgentIdentityParamsSchema,
   AgentIdentityResultSchema,
@@ -179,6 +180,7 @@ export const ProtocolSchemas = {
   SendParams: SendParamsSchema,
   PollParams: PollParamsSchema,
   AgentParams: AgentParamsSchema,
+  AgentAbortParams: AgentAbortParamsSchema,
   AgentIdentityParams: AgentIdentityParamsSchema,
   AgentIdentityResult: AgentIdentityResultSchema,
   AgentWaitParams: AgentWaitParamsSchema,
