@@ -18,18 +18,38 @@ const PERSIST_DEBOUNCE_MS = 5_000;
 const PERSIST_FILENAME = "slack-thread-participation.json";
 
 /**
- * Keep Slack thread participation shared across bundled chunks so thread
- * auto-reply gating does not diverge between prepare/dispatch call paths.
+ * Keep Slack thread participation AND its hydration/persist state shared
+ * across bundled chunks so that prepare/dispatch code-split instances all
+ * agree on whether disk has been loaded and share the same debounce timer.
+ *
+ * Using Symbol.for ensures the same key resolves across separate module
+ * instances that may be bundled into different chunks.
  */
 const SLACK_THREAD_PARTICIPATION_KEY = Symbol.for("openclaw.slackThreadParticipation");
+const SLACK_THREAD_CACHE_STATE_KEY = Symbol.for("openclaw.slackThreadParticipationState");
+
+interface CacheState {
+  loaded: boolean;
+  persistTimer: ReturnType<typeof setTimeout> | null;
+  persistPathOverride: string | undefined;
+}
+
+function getCacheState(): CacheState {
+  const g = globalThis as unknown as Record<symbol, CacheState>;
+  if (!g[SLACK_THREAD_CACHE_STATE_KEY]) {
+    g[SLACK_THREAD_CACHE_STATE_KEY] = {
+      loaded: false,
+      persistTimer: null,
+      persistPathOverride: undefined,
+    };
+  }
+  return g[SLACK_THREAD_CACHE_STATE_KEY];
+}
 
 const threadParticipation = resolveGlobalMap<string, number>(SLACK_THREAD_PARTICIPATION_KEY);
 
-let loaded = false;
-let persistTimer: ReturnType<typeof setTimeout> | null = null;
-let persistPathOverride: string | undefined;
-
 function persistPath(): string {
+  const { persistPathOverride } = getCacheState();
   if (persistPathOverride) {
     return persistPathOverride;
   }
@@ -39,10 +59,11 @@ function persistPath(): string {
 // -- Persistence: load --
 
 function loadFromDisk(): void {
-  if (loaded) {
+  const state = getCacheState();
+  if (state.loaded) {
     return;
   }
-  loaded = true;
+  state.loaded = true;
   try {
     const raw = fs.readFileSync(persistPath(), "utf8");
     const parsed = JSON.parse(raw) as unknown;
@@ -64,16 +85,17 @@ function loadFromDisk(): void {
 // -- Persistence: save (debounced) --
 
 function schedulePersist(): void {
-  if (persistTimer) {
+  const state = getCacheState();
+  if (state.persistTimer) {
     return;
   }
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
+  state.persistTimer = setTimeout(() => {
+    state.persistTimer = null;
     persistToDisk();
   }, PERSIST_DEBOUNCE_MS);
   // Don't hold the process open for a debounced persist.
-  if (typeof persistTimer === "object" && "unref" in persistTimer) {
-    persistTimer.unref();
+  if (typeof state.persistTimer === "object" && "unref" in state.persistTimer) {
+    state.persistTimer.unref();
   }
 }
 
@@ -156,34 +178,37 @@ export function hasSlackThreadParticipation(
 }
 
 export function clearSlackThreadParticipationCache(): void {
+  const state = getCacheState();
   threadParticipation.clear();
-  if (persistTimer) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
+  if (state.persistTimer) {
+    clearTimeout(state.persistTimer);
+    state.persistTimer = null;
   }
   // Persist the empty state so the clear survives restarts.
   // We persist even if the cache hasn't been loaded yet — an existing
   // persist file with stale entries should be wiped.
   persistToDisk();
-  loaded = true;
+  state.loaded = true;
 }
 
 /** @internal — test helper to override persist path and reset load state. */
 export function _resetForTests(overridePath?: string): void {
+  const state = getCacheState();
   threadParticipation.clear();
-  if (persistTimer) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
+  if (state.persistTimer) {
+    clearTimeout(state.persistTimer);
+    state.persistTimer = null;
   }
-  loaded = false;
-  persistPathOverride = overridePath;
+  state.loaded = false;
+  state.persistPathOverride = overridePath;
 }
 
 /** @internal — flush any pending persist immediately (for tests). */
 export function _flushPersist(): void {
-  if (persistTimer) {
-    clearTimeout(persistTimer);
-    persistTimer = null;
+  const state = getCacheState();
+  if (state.persistTimer) {
+    clearTimeout(state.persistTimer);
+    state.persistTimer = null;
   }
   persistToDisk();
 }
