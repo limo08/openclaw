@@ -41,6 +41,9 @@ export type UiSettings = {
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
   borderRadius: number; // Corner roundness (0–100, default 50)
   locale?: string;
+  vncWsUrl?: string;
+  vncPassword?: string;
+  vncTarget?: string;
 };
 
 function isViteDevPage(): boolean {
@@ -191,6 +194,11 @@ export function loadSettings(): UiSettings {
     navCollapsed: false,
     navWidth: 220,
     navGroupsCollapsed: {},
+    vncWsUrl:
+      typeof location !== "undefined"
+        ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/vnc`
+        : "ws://localhost:18789/vnc",
+    vncTarget: "localhost:5900",
     borderRadius: 50,
   };
 
@@ -256,6 +264,9 @@ export function loadSettings(): UiSettings {
           ? parsed.borderRadius
           : defaults.borderRadius,
       locale: isSupportedLocale(parsed.locale) ? parsed.locale : undefined,
+      vncWsUrl: typeof parsed.vncWsUrl === "string" ? parsed.vncWsUrl : defaults.vncWsUrl,
+      vncPassword: typeof parsed.vncPassword === "string" ? parsed.vncPassword : undefined,
+      vncTarget: typeof parsed.vncTarget === "string" ? parsed.vncTarget : defaults.vncTarget,
     };
     if ("token" in parsed) {
       persistSettings(settings);
@@ -317,6 +328,9 @@ function persistSettings(next: UiSettings) {
     borderRadius: next.borderRadius,
     sessionsByGateway,
     ...(next.locale ? { locale: next.locale } : {}),
+    vncWsUrl: next.vncWsUrl,
+    vncPassword: next.vncPassword,
+    vncTarget: next.vncTarget,
   };
   const serialized = JSON.stringify(persisted);
   try {

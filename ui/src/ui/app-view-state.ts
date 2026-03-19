@@ -303,6 +303,7 @@ export type AppViewState = {
     streamMode: boolean;
     overviewShowGatewayToken: boolean;
     overviewShowGatewayPassword: boolean;
+    vncConfigDirty: boolean;
     overviewLogLines: string[];
     overviewLogCursor: number;
     client: GatewayBrowserClient | null;
@@ -369,4 +370,8 @@ export type AppViewState = {
     handleOpenSidebar: (content: string) => void;
     handleCloseSidebar: () => void;
     handleSplitRatioChange: (ratio: number) => void;
+    showClawComputer: boolean;
+    toggleClawComputer: () => void;
+    clawComputerWidth: number;
+    setClawComputerWidth: (width: number) => void;
   };
