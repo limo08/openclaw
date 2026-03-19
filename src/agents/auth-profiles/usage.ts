@@ -44,12 +44,26 @@ export function isProfileInCooldown(
   store: AuthProfileStore,
   profileId: string,
   now?: number,
+  forModel?: string,
 ): boolean {
   if (isAuthCooldownBypassedForProvider(store.profiles[profileId]?.provider)) {
     return false;
   }
   const stats = store.usageStats?.[profileId];
   if (!stats) {
+    return false;
+  }
+  // Model-aware bypass: if the cooldown was caused by a rate_limit on a
+  // specific model and the caller is requesting a *different* model, allow it.
+  // We still honour any active billing/auth disable (`disabledUntil`) — those
+  // are profile-wide and must not be short-circuited by model scoping.
+  if (
+    forModel &&
+    stats.cooldownReason === "rate_limit" &&
+    stats.cooldownModel &&
+    stats.cooldownModel !== forModel &&
+    !isActiveUnusableWindow(stats.disabledUntil, now ?? Date.now())
+  ) {
     return false;
   }
   const unusableUntil = resolveProfileUnusableUntil(stats);
@@ -212,6 +226,8 @@ export function clearExpiredCooldowns(store: AuthProfileStore, now?: number): bo
 
     if (cooldownExpired) {
       stats.cooldownUntil = undefined;
+      stats.cooldownReason = undefined;
+      stats.cooldownModel = undefined;
       profileMutated = true;
     }
     if (disabledExpired) {
@@ -275,10 +291,13 @@ export async function markAuthProfileUsed(params: {
 
 export function calculateAuthProfileCooldownMs(errorCount: number): number {
   const normalized = Math.max(1, errorCount);
-  return Math.min(
-    60 * 60 * 1000, // 1 hour max
-    60 * 1000 * 5 ** Math.min(normalized - 1, 3),
-  );
+  if (normalized <= 1) {
+    return 30_000; // 30 seconds
+  }
+  if (normalized <= 2) {
+    return 60_000; // 1 minute
+  }
+  return 5 * 60_000; // 5 minutes max
 }
 
 type ResolvedAuthCooldownConfig = {
@@ -366,6 +385,8 @@ function resetUsageStats(
     ...existing,
     errorCount: 0,
     cooldownUntil: undefined,
+    cooldownReason: undefined,
+    cooldownModel: undefined,
     disabledUntil: undefined,
     disabledReason: undefined,
     failureCounts: undefined,
@@ -398,6 +419,7 @@ function computeNextProfileUsageStats(params: {
   now: number;
   reason: AuthProfileFailureReason;
   cfgResolved: ResolvedAuthCooldownConfig;
+  modelId?: string;
 }): ProfileUsageStats {
   const windowMs = params.cfgResolved.failureWindowMs;
   const windowExpired =
@@ -451,6 +473,36 @@ function computeNextProfileUsageStats(params: {
       now: params.now,
       recomputedUntil: params.now + backoffMs,
     });
+    // Update cooldown metadata based on whether the window is still active
+    // and whether the same or a different model is failing.
+    const existingCooldownActive =
+      typeof params.existing.cooldownUntil === "number" &&
+      params.existing.cooldownUntil > params.now;
+    if (existingCooldownActive) {
+      // Always use the latest failure reason so that downstream consumers
+      // (e.g. isProfileInCooldown model-bypass) see the most recent signal.
+      // A non-rate_limit failure (auth, billing, …) is profile-wide, so
+      // upgrading from rate_limit → auth correctly blocks all models.
+      updatedStats.cooldownReason = params.reason;
+      // If a different model fails during an active window, widen the scope
+      // to all models (undefined) so neither model bypasses the cooldown.
+      if (
+        params.existing.cooldownModel &&
+        params.modelId &&
+        params.existing.cooldownModel !== params.modelId
+      ) {
+        updatedStats.cooldownModel = undefined;
+      } else if (params.reason !== "rate_limit") {
+        // Non-rate-limit failures are profile-wide — clear model scope even
+        // when the same model fails, so that no model can bypass.
+        updatedStats.cooldownModel = undefined;
+      } else {
+        updatedStats.cooldownModel = params.existing.cooldownModel;
+      }
+    } else {
+      updatedStats.cooldownReason = params.reason;
+      updatedStats.cooldownModel = params.reason === "rate_limit" ? params.modelId : undefined;
+    }
   }
 
   return updatedStats;
@@ -468,8 +520,9 @@ export async function markAuthProfileFailure(params: {
   cfg?: OpenClawConfig;
   agentDir?: string;
   runId?: string;
+  modelId?: string;
 }): Promise<void> {
-  const { store, profileId, reason, agentDir, cfg, runId } = params;
+  const { store, profileId, reason, agentDir, cfg, runId, modelId } = params;
   const profile = store.profiles[profileId];
   if (!profile || isAuthCooldownBypassedForProvider(profile.provider)) {
     return;
@@ -498,6 +551,7 @@ export async function markAuthProfileFailure(params: {
         now,
         reason,
         cfgResolved,
+        modelId,
       });
       nextStats = computed;
       updateUsageStatsEntry(freshStore, profileId, () => computed);
@@ -536,6 +590,7 @@ export async function markAuthProfileFailure(params: {
     now,
     reason,
     cfgResolved,
+    modelId,
   });
   nextStats = computed;
   updateUsageStatsEntry(store, profileId, () => computed);
@@ -552,8 +607,8 @@ export async function markAuthProfileFailure(params: {
 }
 
 /**
- * Mark a profile as transiently failed. Applies exponential backoff cooldown.
- * Cooldown times: 1min, 5min, 25min, max 1 hour.
+ * Mark a profile as transiently failed. Applies stepped backoff cooldown.
+ * Cooldown times: 30s, 1min, 5min (capped).
  * Uses store lock to avoid overwriting concurrent usage updates.
  */
 export async function markAuthProfileCooldown(params: {
