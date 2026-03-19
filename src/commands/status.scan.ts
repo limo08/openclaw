@@ -16,6 +16,7 @@ import { runExec } from "../process/exec.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { createLazyRuntimeSurface } from "../shared/lazy-runtime.js";
 import type { buildChannelsTable as buildChannelsTableFn } from "./status-all/channels.js";
+import { isProbeReachable } from "./gateway-status/helpers.js";
 import { getAgentLocalStatuses } from "./status.agent-local.js";
 import {
   buildTailscaleHttpsUrl,
@@ -190,7 +191,7 @@ async function scanStatusJsonFast(opts: {
     gatewayProbeAuthWarning,
     gatewayProbe,
   } = gatewaySnapshot;
-  const gatewayReachable = gatewayProbe?.ok === true;
+  const gatewayReachable = gatewayProbe ? isProbeReachable(gatewayProbe) : false;
   const gatewaySelf = gatewayProbe?.presence
     ? pickGatewaySelfPresence(gatewayProbe.presence)
     : null;
@@ -305,7 +306,7 @@ export async function scanStatus(
         gatewayProbeAuthWarning,
         gatewayProbe,
       } = await resolveGatewayProbeSnapshot({ cfg, opts });
-      const gatewayReachable = gatewayProbe?.ok === true;
+      const gatewayReachable = gatewayProbe ? isProbeReachable(gatewayProbe) : false;
       const gatewaySelf = gatewayProbe?.presence
         ? pickGatewaySelfPresence(gatewayProbe.presence)
         : null;
