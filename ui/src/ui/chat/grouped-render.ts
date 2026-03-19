@@ -320,6 +320,41 @@ function extractGroupText(group: MessageGroup): string {
 const SKIP_DELETE_CONFIRM_KEY = "openclaw:skipDeleteConfirm";
 
 type DeleteConfirmSide = "left" | "right";
+type DeleteConfirmPlacement = "above" | "below";
+type RectLike = Pick<DOMRect, "left" | "right" | "top" | "bottom" | "width" | "height">;
+type DeleteConfirmPopoverElement = HTMLDivElement & {
+  _removeDeleteConfirm?: () => void;
+};
+
+function clamp(value: number, min: number, max: number): number {
+  if (max <= min) {
+    return min;
+  }
+  return Math.min(Math.max(value, min), max);
+}
+
+export function resolveDeleteConfirmViewportPosition(
+  buttonRect: RectLike,
+  popoverRect: Pick<DOMRect, "width" | "height">,
+  side: DeleteConfirmSide,
+  viewportWidth = window.innerWidth,
+  viewportHeight = window.innerHeight,
+): { left: number; top: number; placement: DeleteConfirmPlacement } {
+  const gap = 6;
+  const margin = 12;
+  const maxLeft = Math.max(margin, viewportWidth - popoverRect.width - margin);
+  const preferredLeft = side === "left" ? buttonRect.right - popoverRect.width : buttonRect.left;
+  const left = clamp(preferredLeft, margin, maxLeft);
+
+  const aboveTop = buttonRect.top - popoverRect.height - gap;
+  const belowTop = buttonRect.bottom + gap;
+  const maxTop = Math.max(margin, viewportHeight - popoverRect.height - margin);
+  const placement: DeleteConfirmPlacement = aboveTop >= margin ? "above" : "below";
+  const preferredTop = placement === "above" ? aboveTop : belowTop;
+  const top = clamp(preferredTop, margin, maxTop);
+
+  return { left, top, placement };
+}
 
 function shouldSkipDeleteConfirm(): boolean {
   try {
@@ -343,12 +378,14 @@ function renderDeleteButton(onDelete: () => void, side: DeleteConfirmSide) {
           }
           const btn = e.currentTarget as HTMLElement;
           const wrap = btn.closest(".chat-delete-wrap") as HTMLElement;
-          const existing = wrap?.querySelector(".chat-delete-confirm");
+          const existing = wrap?.querySelector(
+            ".chat-delete-confirm",
+          ) as DeleteConfirmPopoverElement | null;
           if (existing) {
-            existing.remove();
+            existing._removeDeleteConfirm ? existing._removeDeleteConfirm() : existing.remove();
             return;
           }
-          const popover = document.createElement("div");
+          const popover = document.createElement("div") as DeleteConfirmPopoverElement;
           popover.className = `chat-delete-confirm chat-delete-confirm--${side}`;
           popover.innerHTML = `
             <p class="chat-delete-confirm__text">Delete this message?</p>
@@ -363,29 +400,49 @@ function renderDeleteButton(onDelete: () => void, side: DeleteConfirmSide) {
           `;
           wrap.appendChild(popover);
 
+          const { left, top, placement } = resolveDeleteConfirmViewportPosition(
+            btn.getBoundingClientRect(),
+            popover.getBoundingClientRect(),
+            side,
+          );
+          popover.style.left = `${left}px`;
+          popover.style.top = `${top}px`;
+          popover.classList.toggle("chat-delete-confirm--below", placement === "below");
+
           const cancel = popover.querySelector(".chat-delete-confirm__cancel")!;
           const yes = popover.querySelector(".chat-delete-confirm__yes")!;
           const check = popover.querySelector(".chat-delete-confirm__check") as HTMLInputElement;
 
-          cancel.addEventListener("click", () => popover.remove());
+          const removePopover = () => {
+            popover.remove();
+            document.removeEventListener("click", closeOnOutside, true);
+            document.removeEventListener("scroll", removePopover, true);
+            window.removeEventListener("resize", removePopover);
+          };
+
+          cancel.addEventListener("click", removePopover);
           yes.addEventListener("click", () => {
             if (check.checked) {
               try {
                 getSafeLocalStorage()?.setItem(SKIP_DELETE_CONFIRM_KEY, "1");
               } catch {}
             }
-            popover.remove();
+            removePopover();
             onDelete();
           });
 
           // Close on click outside
           const closeOnOutside = (evt: MouseEvent) => {
             if (!popover.contains(evt.target as Node) && evt.target !== btn) {
-              popover.remove();
-              document.removeEventListener("click", closeOnOutside, true);
+              removePopover();
             }
           };
-          requestAnimationFrame(() => document.addEventListener("click", closeOnOutside, true));
+          popover._removeDeleteConfirm = removePopover;
+          requestAnimationFrame(() => {
+            document.addEventListener("click", closeOnOutside, true);
+            document.addEventListener("scroll", removePopover, true);
+            window.addEventListener("resize", removePopover);
+          });
         }}
       >${icons.trash ?? icons.x}</button>
     </span>
