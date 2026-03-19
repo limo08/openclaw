@@ -91,6 +91,7 @@ Tool params:
   - `mode: "session"` requires `thread: true`
 - `cleanup?` (`delete|keep`, default `keep`)
 - `sandbox?` (`inherit|require`, default `inherit`; `require` rejects spawn unless target child runtime is sandboxed)
+- `streamTo?` (`"parent"`; streams output to the parent session in real-time instead of waiting for the announce step. Only supported when `runtime: "acp"`)
 - `sessions_spawn` does **not** accept channel-delivery params (`target`, `channel`, `to`, `threadId`, `replyTo`, `transport`). For delivery, use `message`/`sessions_send` from the spawned run.
 
 ## Thread-bound sessions
@@ -118,8 +119,8 @@ Manual controls:
 
 Config switches:
 
-- Global default: `session.threadBindings.enabled`, `session.threadBindings.idleHours`, `session.threadBindings.maxAgeHours`
-- Channel override and spawn auto-bind keys are adapter-specific. See **Thread supporting channels** above.
+- **Global defaults** (apply to any channel with thread support): `session.threadBindings.enabled`, `session.threadBindings.idleHours`, `session.threadBindings.maxAgeHours`
+- **Adapter overrides** (channel-specific, take precedence over globals): e.g. `channels.discord.threadBindings.enabled`, `channels.discord.threadBindings.idleHours`, `channels.discord.threadBindings.maxAgeHours`, `channels.discord.threadBindings.spawnSubagentSessions`
 
 See [Configuration Reference](/gateway/configuration-reference) and [Slash commands](/tools/slash-commands) for current adapter details.
 
@@ -139,7 +140,7 @@ Auto-archive:
 - `cleanup: "delete"` archives immediately after announce (still keeps the transcript via rename).
 - Auto-archive is best-effort; pending timers are lost if the gateway restarts.
 - `runTimeoutSeconds` does **not** auto-archive; it only stops the run. The session remains until auto-archive.
-- Auto-archive applies equally to depth-1 and depth-2 sessions.
+- Auto-archive applies to sub-agent sessions at any depth.
 
 ## Nested Sub-Agents
 
@@ -156,6 +157,7 @@ By default, sub-agents cannot spawn their own sub-agents (`maxSpawnDepth: 1`). Y
         maxChildrenPerAgent: 5, // max active children per agent session (default: 5)
         maxConcurrent: 8, // global concurrency lane cap (default: 8)
         runTimeoutSeconds: 900, // default timeout for sessions_spawn when omitted (0 = no timeout)
+        announceTimeoutMs: 90000, // how long the announce step waits before giving up (default: 90000)
       },
     },
   },
@@ -168,7 +170,8 @@ By default, sub-agents cannot spawn their own sub-agents (`maxSpawnDepth: 1`). Y
 | ----- | -------------------------------------------- | --------------------------------------------- | ---------------------------- |
 | 0     | `agent:<id>:main`                            | Main agent                                    | Always                       |
 | 1     | `agent:<id>:subagent:<uuid>`                 | Sub-agent (orchestrator when depth 2 allowed) | Only if `maxSpawnDepth >= 2` |
-| 2     | `agent:<id>:subagent:<uuid>:subagent:<uuid>` | Sub-sub-agent (leaf worker)                   | Never                        |
+| 2     | `agent:<id>:subagent:<uuid>:subagent:<uuid>` | Sub-sub-agent (leaf worker)                   | Only if `maxSpawnDepth >= 3` |
+| 3–5   | Deeper nesting follows the same pattern       | Deeper workers                                | Only if `maxSpawnDepth > current depth` |
 
 ### Announce chain
 
@@ -240,11 +243,11 @@ Announce payloads include a stats line at the end (even when wrapped):
 
 ## Tool Policy (sub-agent tools)
 
-By default, sub-agents get **all tools except session tools** and system tools:
+By default, sub-agents get **all tools except these session tools**:
 
 - `sessions_list`
 - `sessions_history`
-- `sessions_send`
+- `sessions_send` (denied at all depths, even orchestrator)
 - `sessions_spawn`
 
 When `maxSpawnDepth >= 2`, depth-1 orchestrator sub-agents additionally receive `sessions_spawn`, `subagents`, `sessions_list`, and `sessions_history` so they can manage their children.
