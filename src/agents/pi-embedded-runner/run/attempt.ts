@@ -2501,8 +2501,10 @@ export async function runEmbeddedAttempt(
 
           // Detect and load images referenced in the prompt for vision-capable models.
           // Images are prompt-local only (pi-like behavior).
+          // Use params.prompt (the raw user turn) for image detection so
+          // hook-prepended context and prior history lines are not scanned.
           const imageResult = await detectAndLoadPromptImages({
-            prompt: effectivePrompt,
+            prompt: params.prompt,
             workspaceDir: effectiveWorkspace,
             model: params.model,
             existingImages: params.images,
@@ -2521,6 +2523,21 @@ export async function runEmbeddedAttempt(
             messages: activeSession.messages,
             note: `images: prompt=${imageResult.images.length}`,
           });
+
+          // When the model lacks vision and images were present, append a note
+          // so the agent knows images were received and can use the image tool.
+          if (imageResult.droppedForVision > 0) {
+            const canUseTool =
+              !params.disableTools && supportsModelTools(params.model);
+            const toolHint = canUseTool
+              ? " Use the image tool to analyze the image(s) if an imageModel is configured."
+              : "";
+            const imageNote =
+              `\n\n[System note: ${imageResult.droppedForVision} image(s) were received with this message ` +
+              `(as attachments or path references), ` +
+              `but the current model does not support vision input.${toolHint}]`;
+            effectivePrompt = effectivePrompt + imageNote;
+          }
 
           // Diagnostic: log context sizes before prompt to help debug early overflow errors.
           if (log.isEnabled("debug")) {
