@@ -544,8 +544,10 @@ describe("memory plugin e2e", () => {
       expect(auditLine.operation).toBe("replaced");
       expect(auditLine.old_id).toBe(existingId);
       expect(auditLine.new_id).toBeDefined();
-      expect(auditLine.old_text).toContain("Old memory");
-      expect(auditLine.new_text).toContain("Updated memory");
+      // Content fields (old_text, new_text) are intentionally omitted from
+      // the audit log to avoid writing sensitive memory content to plaintext.
+      expect(auditLine.old_text).toBeUndefined();
+      expect(auditLine.new_text).toBeUndefined();
       expect(auditLine.ts).toBeGreaterThan(0);
     } finally {
       vi.doUnmock("openai");

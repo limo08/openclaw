@@ -7,7 +7,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir } from "node:fs/promises";
+import { constants as fsConstants, open as fsOpen, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type * as LanceDB from "@lancedb/lancedb";
@@ -60,6 +60,7 @@ type MemorySearchResult = {
 // ============================================================================
 
 const _memoryLocks = new Map<string, Promise<void>>();
+const MEMORY_LOCK_TIMEOUT_MS = 30_000;
 
 function withMemoryLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
   const prev = _memoryLocks.get(id) ?? Promise.resolve();
@@ -68,7 +69,18 @@ function withMemoryLock<T>(id: string, fn: () => Promise<T>): Promise<T> {
     resolveLock = r;
   });
   _memoryLocks.set(id, next);
-  return prev
+  // Race the previous lock against a timeout so the mutex cannot be held
+  // indefinitely (e.g. if a prior caller threw before releasing).
+  const prevWithTimeout = Promise.race([
+    prev,
+    new Promise<void>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`memory-lancedb: lock timeout for memoryId=${id}`)),
+        MEMORY_LOCK_TIMEOUT_MS,
+      ),
+    ),
+  ]);
+  return prevWithTimeout
     .then(() => fn())
     .finally(() => {
       resolveLock();
@@ -689,7 +701,10 @@ export default definePluginEntry({
               similarity = 1 / (1 + Math.sqrt(l2sq));
             }
 
-            // Append to audit log
+            // Append to audit log.
+            // Content fields are intentionally omitted — audit entries contain
+            // only metadata (IDs, timestamp, similarity) to avoid writing
+            // sensitive memory content to a plaintext file.
             const auditLogPath = path.join(homedir(), ".openclaw", "memory", "refresh-audit.jsonl");
             try {
               await mkdir(path.dirname(auditLogPath), { recursive: true });
@@ -699,10 +714,23 @@ export default definePluginEntry({
                 old_id: memoryId,
                 new_id: newEntry.id,
                 similarity,
-                old_text: oldTextPreview,
-                new_text: text.slice(0, 80),
               };
-              await appendFile(auditLogPath, JSON.stringify(auditEntry) + "\n", "utf8");
+              // Open with O_NOFOLLOW | O_APPEND | O_CREAT and mode 0o600 so the
+              // file is created with restricted permissions and symlinks are not
+              // followed (prevents symlink-based arbitrary-file-write attacks).
+              const fh = await fsOpen(
+                auditLogPath,
+                fsConstants.O_WRONLY |
+                  fsConstants.O_APPEND |
+                  fsConstants.O_CREAT |
+                  fsConstants.O_NOFOLLOW,
+                0o600,
+              );
+              try {
+                await fh.writeFile(JSON.stringify(auditEntry) + "\n", "utf8");
+              } finally {
+                await fh.close();
+              }
             } catch (auditErr) {
               api.logger.warn(`memory-lancedb: audit log write failed: ${String(auditErr)}`);
             }
