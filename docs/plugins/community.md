@@ -49,3 +49,8 @@ Use this format when adding entries:
   npm: `@icesword760/openclaw-wechat`
   repo: `https://github.com/icesword0760/openclaw-wechat`
   install: `openclaw plugins install @icesword760/openclaw-wechat`
+
+- **OpenClaw Memory** — Continuity-first memory runtime for OpenClaw with durable SQLite recall, user-aware identity binding, and optional local Markdown knowledge retrieval.
+  npm: `@bamdra/bamdra-openclaw-memory`
+  repo: `https://github.com/bamdra/bamdra-openclaw-memory`
+  install: `openclaw plugins install @bamdra/bamdra-openclaw-memory`
