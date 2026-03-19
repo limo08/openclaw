@@ -41,9 +41,16 @@ describe("getShellConfig", () => {
 
   if (isWin) {
     it("uses PowerShell on Windows", () => {
-      const { shell } = getShellConfig();
+      const { shell, args } = getShellConfig();
       const normalized = shell.toLowerCase();
       expect(normalized.includes("powershell") || normalized.includes("pwsh")).toBe(true);
+      expect(args).not.toContain("-WindowStyle");
+    });
+
+    it("applies configured PowerShell window style on Windows", () => {
+      const { args } = getShellConfig({ windowsPowerShellWindowStyle: "hidden" });
+      expect(args).toContain("-WindowStyle");
+      expect(args).toContain("Hidden");
     });
     return;
   }

@@ -486,6 +486,7 @@ export function createExecTool(
         scopeKey: defaults?.scopeKey,
         sessionKey: notifySessionKey,
         timeoutSec: effectiveTimeout,
+        windowStyle: defaults?.windowStyle,
         onUpdate,
       });
 
