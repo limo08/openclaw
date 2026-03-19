@@ -325,10 +325,48 @@ function resolveToolPolicies(params: {
   return policies;
 }
 
+const WEB_SEARCH_PROVIDER_PLUGIN_IDS = {
+  brave: "brave",
+  firecrawl: "firecrawl",
+  gemini: "google",
+  grok: "xai",
+  kimi: "moonshot",
+  perplexity: "perplexity",
+} as const;
+
+function hasConfiguredWebSearchValue(value: unknown): boolean {
+  return typeof value === "string" ? Boolean(value.trim()) : Boolean(value);
+}
+
 function hasWebSearchKey(cfg: OpenClawConfig, env: NodeJS.ProcessEnv): boolean {
-  const search = cfg.tools?.web?.search;
+  const search = cfg.tools?.web?.search as Record<string, unknown> | undefined;
+  const pluginEntries = cfg.plugins?.entries as
+    | Record<string, { config?: { webSearch?: Record<string, unknown> } }>
+    | undefined;
+  const pluginKeys = Object.values(WEB_SEARCH_PROVIDER_PLUGIN_IDS).some((pluginId) =>
+    hasConfiguredWebSearchValue(pluginEntries?.[pluginId]?.config?.webSearch?.apiKey),
+  );
+  const legacyKeys = Boolean(
+    hasConfiguredWebSearchValue(search?.apiKey) ||
+    hasConfiguredWebSearchValue(
+      (search?.perplexity as Record<string, unknown> | undefined)?.apiKey,
+    ) ||
+    hasConfiguredWebSearchValue((search?.grok as Record<string, unknown> | undefined)?.apiKey) ||
+    hasConfiguredWebSearchValue((search?.gemini as Record<string, unknown> | undefined)?.apiKey) ||
+    hasConfiguredWebSearchValue((search?.kimi as Record<string, unknown> | undefined)?.apiKey) ||
+    hasConfiguredWebSearchValue((search?.firecrawl as Record<string, unknown> | undefined)?.apiKey),
+  );
   return Boolean(
-    search?.apiKey || search?.perplexity?.apiKey || env.BRAVE_API_KEY || env.PERPLEXITY_API_KEY,
+    pluginKeys ||
+    legacyKeys ||
+    env.BRAVE_API_KEY ||
+    env.FIRECRAWL_API_KEY ||
+    env.GEMINI_API_KEY ||
+    env.XAI_API_KEY ||
+    env.KIMI_API_KEY ||
+    env.MOONSHOT_API_KEY ||
+    env.PERPLEXITY_API_KEY ||
+    env.OPENROUTER_API_KEY,
   );
 }
 

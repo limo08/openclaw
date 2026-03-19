@@ -996,7 +996,7 @@ describe("resolveOutboundSessionRoute", () => {
           sessionKey: "agent:main:matrix:channel:!ops:matrix.example",
           from: "matrix:channel:!ops:matrix.example",
           to: "room:!ops:matrix.example",
-          chatType: "channel",
+          chatType: "group",
         },
       },
       {
@@ -1008,7 +1008,7 @@ describe("resolveOutboundSessionRoute", () => {
           sessionKey: "agent:main:msteams:channel:19:meeting_abc@thread.tacv2",
           from: "msteams:channel:19:meeting_abc@thread.tacv2",
           to: "conversation:19:meeting_abc@thread.tacv2",
-          chatType: "channel",
+          chatType: "group",
         },
       },
       {

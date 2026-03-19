@@ -389,7 +389,7 @@ describe("createTelegramBot", () => {
     dispatchReplyWithBufferedBlockDispatcher.mockImplementationOnce(
       async ({ dispatcherOptions }) => {
         await dispatcherOptions.typingCallbacks?.onReplyStart?.();
-        return { queuedFinal: false, counts: { block: 0, final: 0, tool: 0 } };
+        return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
       },
     );
     createTelegramBot({ token: "tok" });
@@ -523,10 +523,10 @@ describe("createTelegramBot", () => {
 
   it("does not persist update offset past pending updates", async () => {
     // For this test we need sequentialize(...) to behave like a normal middleware and call next().
-    sequentializeSpy.mockImplementationOnce(
-      () => async (_ctx: unknown, next: () => Promise<void>) => {
-        await next();
-      },
+    sequentializeSpy.mockImplementationOnce(() =>
+      vi.fn(async (_ctx: unknown, next?: () => Promise<void>) => {
+        await next?.();
+      }),
     );
 
     const onUpdateId = vi.fn();
@@ -1464,7 +1464,7 @@ describe("createTelegramBot", () => {
       dispatchReplyWithBufferedBlockDispatcher.mockImplementationOnce(async (params) => {
         dispatchCall = params as typeof dispatchCall;
         await params.dispatcherOptions.typingCallbacks?.onReplyStart?.();
-        return { queuedFinal: false, counts: { block: 0, final: 0, tool: 0 } };
+        return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
       });
       loadConfig.mockReturnValue({
         channels: {
@@ -1516,7 +1516,9 @@ describe("createTelegramBot", () => {
       await handler(makeForumGroupMessageCtx({ threadId: testCase.threadId }));
 
       expect(sendMessageSpy.mock.calls.length, testCase.name).toBe(1);
-      const sendParams = sendMessageSpy.mock.calls[0]?.[2] as { message_thread_id?: number };
+      const sendParams = sendMessageSpy.mock.calls[0]?.[2] as unknown as
+        | { message_thread_id?: number }
+        | undefined;
       if (testCase.expectedMessageThreadId == null) {
         expect(sendParams?.message_thread_id, testCase.name).toBeUndefined();
       } else {
@@ -1795,7 +1797,7 @@ describe("createTelegramBot", () => {
       | undefined;
     dispatchReplyWithBufferedBlockDispatcher.mockImplementationOnce(async (params) => {
       dispatchCall = params as typeof dispatchCall;
-      return { queuedFinal: false, counts: { block: 0, final: 0, tool: 0 } };
+      return { queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } };
     });
     loadConfig.mockReturnValue({
       channels: {

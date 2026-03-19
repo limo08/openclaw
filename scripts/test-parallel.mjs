@@ -401,11 +401,13 @@ const resolveFilterMatches = (fileFilter) => {
   }
   return allKnownTestFiles.filter((file) => file.includes(normalizedFilter));
 };
-const isVmForkSingletonUnitFile = (fileFilter) => unitVmForkSingletonFiles.includes(fileFilter);
 const isThreadSingletonUnitFile = (fileFilter) => unitThreadSingletonFiles.includes(fileFilter);
+const isVmForkSingletonUnitFile = (fileFilter) => unitVmForkSingletonFiles.includes(fileFilter);
+const shouldForceForkPoolForFilters = (filters) =>
+  filters.some((filter) => filter.startsWith("src/plugins/contracts/"));
 const createTargetedEntry = (owner, isolated, filters) => {
   const name = isolated ? `${owner}-isolated` : owner;
-  const forceForks = isolated;
+  const forceForks = isolated || shouldForceForkPoolForFilters(filters);
   if (owner === "unit-vmforks") {
     return {
       name,

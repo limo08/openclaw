@@ -371,6 +371,7 @@ export async function runPreparedReply(
     sessionKey,
     storePath,
     sessionId,
+    agentId,
     isFirstTurnInSession,
     workspaceDir,
     cfg,

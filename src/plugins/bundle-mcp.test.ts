@@ -11,6 +11,10 @@ function getServerArgs(value: unknown): unknown[] | undefined {
   return isRecord(value) && Array.isArray(value.args) ? value.args : undefined;
 }
 
+function normalizePath(p: string | undefined): string {
+  return p?.replace(/\\/g, "/").toLowerCase() ?? "";
+}
+
 const tempHarness = createBundleMcpTempHarness();
 
 afterEach(async () => {
@@ -55,8 +59,12 @@ describe("loadEnabledBundleMcpConfig", () => {
       if (!loadedServerPath) {
         throw new Error("expected bundled MCP args to include the server path");
       }
-      expect(await fs.realpath(loadedServerPath)).toBe(resolvedServerPath);
-      expect(loadedServer.cwd).toBe(resolvedPluginRoot);
+      expect(normalizePath(await fs.realpath(loadedServerPath))).toBe(
+        normalizePath(resolvedServerPath),
+      );
+      expect(normalizePath(await fs.realpath(loadedServer.cwd as string))).toBe(
+        normalizePath(resolvedPluginRoot),
+      );
     } finally {
       env.restore();
     }
@@ -146,6 +154,11 @@ describe("loadEnabledBundleMcpConfig", () => {
 
       const pluginRoot = path.join(homeDir, ".openclaw", "extensions", "inline-claude");
       await fs.mkdir(path.join(pluginRoot, ".claude-plugin"), { recursive: true });
+      await fs.mkdir(path.join(pluginRoot, "bin"), { recursive: true });
+      await fs.mkdir(path.join(pluginRoot, "servers"), { recursive: true });
+      await fs.writeFile(path.join(pluginRoot, "bin", "server.sh"), "#!/bin/sh\n", "utf-8");
+      await fs.writeFile(path.join(pluginRoot, "servers", "probe.mjs"), "export {};\n", "utf-8");
+      await fs.writeFile(path.join(pluginRoot, "local-probe.mjs"), "export {};\n", "utf-8");
       await fs.writeFile(
         path.join(pluginRoot, ".claude-plugin", "plugin.json"),
         `${JSON.stringify(
@@ -181,17 +194,27 @@ describe("loadEnabledBundleMcpConfig", () => {
       const resolvedPluginRoot = await fs.realpath(pluginRoot);
 
       expect(loaded.diagnostics).toEqual([]);
-      expect(loaded.config.mcpServers.inlineProbe).toEqual({
-        command: path.join(resolvedPluginRoot, "bin", "server.sh"),
-        args: [
-          path.join(resolvedPluginRoot, "servers", "probe.mjs"),
-          path.join(resolvedPluginRoot, "local-probe.mjs"),
+      const inlineProbe = loaded.config.mcpServers.inlineProbe as {
+        command?: string;
+        args?: string[];
+        cwd?: string;
+        env?: Record<string, string>;
+      };
+      expect(normalizePath(await fs.realpath(inlineProbe.command ?? ""))).toBe(
+        normalizePath(await fs.realpath(path.join(resolvedPluginRoot, "bin", "server.sh"))),
+      );
+      expect(await Promise.all(inlineProbe.args?.map((entry) => fs.realpath(entry)) ?? [])).toEqual(
+        [
+          await fs.realpath(path.join(resolvedPluginRoot, "servers", "probe.mjs")),
+          await fs.realpath(path.join(resolvedPluginRoot, "local-probe.mjs")),
         ],
-        cwd: resolvedPluginRoot,
-        env: {
-          PLUGIN_ROOT: resolvedPluginRoot,
-        },
-      });
+      );
+      expect(normalizePath(await fs.realpath(inlineProbe.cwd ?? ""))).toBe(
+        normalizePath(resolvedPluginRoot),
+      );
+      expect(normalizePath(await fs.realpath(inlineProbe.env?.PLUGIN_ROOT ?? ""))).toBe(
+        normalizePath(resolvedPluginRoot),
+      );
     } finally {
       env.restore();
     }

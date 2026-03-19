@@ -43,7 +43,7 @@ function resolveContractMessageDiscovery(params: {
       capabilities: [] as readonly ChannelMessageCapability[],
     };
   }
-  const discovery = actions.describeMessageTool({ cfg: params.cfg }) ?? null;
+  const discovery = actions.describeMessageTool?.({ cfg: params.cfg }) ?? null;
   return {
     actions: Array.isArray(discovery?.actions) ? [...discovery.actions] : [],
     capabilities: Array.isArray(discovery?.capabilities) ? discovery.capabilities : [],
