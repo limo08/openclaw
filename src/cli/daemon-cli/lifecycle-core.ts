@@ -41,6 +41,7 @@ type NotLoadedActionContext = {
   json: boolean;
   stdout: Writable;
   fail: (message: string, hints?: string[]) => void;
+  onBeforeRestartAction?: () => Promise<void> | void;
 };
 
 async function maybeAugmentSystemdHints(hints: string[]): Promise<string[]> {
@@ -333,7 +334,9 @@ export async function runServiceRestart(params: {
   opts?: DaemonLifecycleOptions;
   checkTokenDrift?: boolean;
   postRestartCheck?: (ctx: RestartPostCheckContext) => Promise<GatewayServiceRestartResult | void>;
+  onBeforeRestartAction?: () => Promise<void> | void;
   onNotLoaded?: (ctx: NotLoadedActionContext) => Promise<NotLoadedActionResult | null>;
+  onScheduled?: () => void;
 }): Promise<boolean> {
   const json = Boolean(params.opts?.json);
   const { stdout, emit, fail } = createActionIO({ action: "restart", json });
@@ -343,6 +346,7 @@ export async function runServiceRestart(params: {
     restartStatus: ReturnType<typeof describeGatewayServiceRestart>,
     serviceLoaded: boolean,
   ) => {
+    params.onScheduled?.();
     emit({
       ok: true,
       result: restartStatus.daemonActionResult,
@@ -379,7 +383,13 @@ export async function runServiceRestart(params: {
 
   if (!loaded) {
     try {
-      handledNotLoaded = (await params.onNotLoaded?.({ json, stdout, fail })) ?? null;
+      handledNotLoaded =
+        (await params.onNotLoaded?.({
+          json,
+          stdout,
+          fail,
+          onBeforeRestartAction: params.onBeforeRestartAction,
+        })) ?? null;
     } catch (err) {
       fail(`${params.serviceNoun} restart failed: ${String(err)}`);
       return false;
@@ -435,6 +445,7 @@ export async function runServiceRestart(params: {
   try {
     let restartResult: GatewayServiceRestartResult = { outcome: "completed" };
     if (loaded) {
+      await params.onBeforeRestartAction?.();
       restartResult = await params.service.restart({ env: process.env, stdout });
     }
     let restartStatus = describeGatewayServiceRestart(params.serviceNoun, restartResult);
@@ -470,6 +481,7 @@ export async function runServiceRestart(params: {
     }
     return true;
   } catch (err) {
+    await params.onRestartFailure?.(err);
     const hints = params.renderStartHints();
     fail(`${params.serviceNoun} restart failed: ${String(err)}`, hints);
     return false;

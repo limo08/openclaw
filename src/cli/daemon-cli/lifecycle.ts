@@ -1,5 +1,7 @@
 import { isRestartEnabled } from "../../config/commands.js";
 import { readBestEffortConfig, resolveGatewayPort } from "../../config/config.js";
+import { createConfigIO } from "../../config/io.js";
+import { extractDeliveryInfo, resolveMainSessionKey } from "../../config/sessions.js";
 import { resolveGatewayService } from "../../daemon/service.js";
 import { probeGateway } from "../../gateway/probe.js";
 import {
@@ -7,6 +9,12 @@ import {
   formatGatewayPidList,
   signalVerifiedGatewayPidSync,
 } from "../../infra/gateway-processes.js";
+import {
+  formatDoctorNonInteractiveHint,
+  type RestartSentinelPayload,
+  transitionRestartSentinelStatus,
+  writeRestartSentinel,
+} from "../../infra/restart-sentinel.js";
 import { defaultRuntime } from "../../runtime.js";
 import { theme } from "../../terminal/theme.js";
 import { formatCliCommand } from "../command-format.js";
@@ -31,14 +39,18 @@ import type { DaemonLifecycleOptions } from "./types.js";
 const POST_RESTART_HEALTH_ATTEMPTS = DEFAULT_RESTART_HEALTH_ATTEMPTS;
 const POST_RESTART_HEALTH_DELAY_MS = DEFAULT_RESTART_HEALTH_DELAY_MS;
 
-async function resolveGatewayLifecyclePort(service = resolveGatewayService()) {
+async function resolveGatewayLifecycleContext(service = resolveGatewayService()) {
   const command = await service.readCommand(process.env).catch(() => null);
   const serviceEnv = command?.environment ?? undefined;
   const mergedEnv = {
     ...(process.env as Record<string, string | undefined>),
     ...(serviceEnv ?? undefined),
   } as NodeJS.ProcessEnv;
+  return { command, mergedEnv };
+}
 
+async function resolveGatewayLifecyclePort(service = resolveGatewayService()) {
+  const { command, mergedEnv } = await resolveGatewayLifecycleContext(service);
   const portFromArgs = parsePortFromArgs(command?.programArguments);
   return portFromArgs ?? resolveGatewayPort(await readBestEffortConfig(), mergedEnv);
 }
@@ -92,7 +104,10 @@ async function stopGatewayWithoutServiceManager(port: number) {
   };
 }
 
-async function restartGatewayWithoutServiceManager(port: number) {
+async function restartGatewayWithoutServiceManager(
+  port: number,
+  onBeforeRestartAction?: () => Promise<void> | void,
+) {
   await assertUnmanagedGatewayRestartEnabled(port);
   const pids = resolveVerifiedGatewayListenerPids(port);
   if (pids.length === 0) {
@@ -103,6 +118,7 @@ async function restartGatewayWithoutServiceManager(port: number) {
       `multiple gateway processes are listening on port ${port}: ${formatGatewayPidList(pids)}; use "openclaw gateway status --deep" before retrying restart`,
     );
   }
+  await onBeforeRestartAction?.();
   signalVerifiedGatewayPidSync(pids[0], "SIGUSR1");
   return {
     result: "restarted" as const,
@@ -151,114 +167,224 @@ export async function runDaemonRestart(opts: DaemonLifecycleOptions = {}): Promi
   const json = Boolean(opts.json);
   const service = resolveGatewayService();
   let restartedWithoutServiceManager = false;
+  const shouldNotify = Boolean(opts.notify);
   const restartPort = await resolveGatewayLifecyclePort(service).catch(() =>
     resolveGatewayPortFallback(),
   );
   const restartWaitMs = POST_RESTART_HEALTH_ATTEMPTS * POST_RESTART_HEALTH_DELAY_MS;
   const restartWaitSeconds = Math.round(restartWaitMs / 1000);
 
-  return await runServiceRestart({
-    serviceNoun: "Gateway",
-    service,
-    renderStartHints: renderGatewayServiceStartHints,
-    opts,
-    checkTokenDrift: true,
-    onNotLoaded: async () => {
-      const handled = await restartGatewayWithoutServiceManager(restartPort);
-      if (handled) {
-        restartedWithoutServiceManager = true;
-      }
-      return handled;
-    },
-    postRestartCheck: async ({ warnings, fail, stdout }) => {
-      if (restartedWithoutServiceManager) {
-        const health = await waitForGatewayHealthyListener({
-          port: restartPort,
-          attempts: POST_RESTART_HEALTH_ATTEMPTS,
-          delayMs: POST_RESTART_HEALTH_DELAY_MS,
-        });
-        if (health.healthy) {
-          return;
-        }
-
-        const diagnostics = renderGatewayPortHealthDiagnostics(health);
-        const timeoutLine = `Timed out after ${restartWaitSeconds}s waiting for gateway port ${restartPort} to become healthy.`;
-        if (!json) {
-          defaultRuntime.log(theme.warn(timeoutLine));
-          for (const line of diagnostics) {
-            defaultRuntime.log(theme.muted(line));
-          }
-        } else {
-          warnings.push(timeoutLine);
-          warnings.push(...diagnostics);
-        }
-
-        fail(`Gateway restart timed out after ${restartWaitSeconds}s waiting for health checks.`, [
-          formatCliCommand("openclaw gateway status --deep"),
-          formatCliCommand("openclaw doctor"),
-        ]);
-      }
-
-      let health = await waitForGatewayHealthyRestart({
-        service,
-        port: restartPort,
-        attempts: POST_RESTART_HEALTH_ATTEMPTS,
-        delayMs: POST_RESTART_HEALTH_DELAY_MS,
-        includeUnknownListenersAsStale: process.platform === "win32",
+  let restartSentinelWritable = false;
+  let restartSentinelMarkedInProgress = false;
+  let restartSentinelMarkedError = false;
+  let restartSentinelEnv: NodeJS.ProcessEnv | undefined;
+  const markRestartSentinelInProgress = async () => {
+    if (!restartSentinelWritable || restartSentinelMarkedInProgress) {
+      return;
+    }
+    restartSentinelMarkedInProgress = true;
+    try {
+      await transitionRestartSentinelStatus("in-progress", {
+        allowedCurrentStatuses: ["pending"],
+        env: restartSentinelEnv,
       });
+    } catch {
+      // best-effort
+    }
+  };
+  const markRestartSentinelError = async () => {
+    if (!shouldNotify || !restartSentinelMarkedInProgress || restartSentinelMarkedError) {
+      return;
+    }
+    restartSentinelMarkedError = true;
+    try {
+      await transitionRestartSentinelStatus("error", {
+        allowedCurrentStatuses: ["in-progress"],
+        env: restartSentinelEnv,
+      });
+    } catch {
+      // best-effort
+    }
+  };
 
-      if (!health.healthy && health.staleGatewayPids.length > 0) {
-        const staleMsg = `Found stale gateway process(es): ${health.staleGatewayPids.join(", ")}.`;
-        warnings.push(staleMsg);
-        if (!json) {
-          defaultRuntime.log(theme.warn(staleMsg));
-          defaultRuntime.log(theme.muted("Stopping stale process(es) and retrying restart..."));
+  if (shouldNotify) {
+    const { mergedEnv } = await resolveGatewayLifecycleContext(service);
+    const daemonCfg = createConfigIO({ env: mergedEnv }).loadConfig();
+    const mainSessionKey = resolveMainSessionKey(daemonCfg);
+    const { deliveryContext, threadId } = extractDeliveryInfo(mainSessionKey, {
+      cfg: daemonCfg,
+      env: mergedEnv,
+    });
+    const hasRoute = Boolean(deliveryContext?.channel && deliveryContext?.to);
+    if (!hasRoute) {
+      if (!json) {
+        defaultRuntime.log(
+          theme.warn(
+            `--notify requested but main session (${mainSessionKey}) has no delivery target; skipping post-restart notification.`,
+          ),
+        );
+      }
+    } else {
+      const note = typeof opts.note === "string" && opts.note.trim() ? opts.note.trim() : undefined;
+      const payload: RestartSentinelPayload = {
+        kind: "restart",
+        status: "pending",
+        ts: Date.now(),
+        sessionKey: mainSessionKey,
+        deliveryContext,
+        threadId,
+        message: note,
+        doctorHint: formatDoctorNonInteractiveHint(mergedEnv),
+        stats: {
+          mode: "gateway.restart",
+          reason: note ?? "cli --notify",
+        },
+      };
+      try {
+        await writeRestartSentinel(payload, mergedEnv);
+        restartSentinelWritable = true;
+        restartSentinelEnv = mergedEnv;
+      } catch {
+        // best-effort
+      }
+    }
+  }
+
+  let restarted = false;
+  let restartScheduled = false;
+  try {
+    restarted = await runServiceRestart({
+      serviceNoun: "Gateway",
+      service,
+      renderStartHints: renderGatewayServiceStartHints,
+      opts,
+      checkTokenDrift: true,
+      onScheduled: () => {
+        restartScheduled = true;
+      },
+      onBeforeRestartAction: markRestartSentinelInProgress,
+      onRestartFailure: markRestartSentinelError,
+      onNotLoaded: async (ctx) => {
+        const handled = await restartGatewayWithoutServiceManager(
+          restartPort,
+          ctx?.onBeforeRestartAction,
+        );
+        if (handled) {
+          restartedWithoutServiceManager = true;
+        }
+        return handled;
+      },
+      postRestartCheck: async ({ warnings, fail, stdout }) => {
+        if (restartedWithoutServiceManager) {
+          const health = await waitForGatewayHealthyListener({
+            port: restartPort,
+            attempts: POST_RESTART_HEALTH_ATTEMPTS,
+            delayMs: POST_RESTART_HEALTH_DELAY_MS,
+          });
+          if (health.healthy) {
+            return;
+          }
+
+          const diagnostics = renderGatewayPortHealthDiagnostics(health);
+          const timeoutLine = `Timed out after ${restartWaitSeconds}s waiting for gateway port ${restartPort} to become healthy.`;
+          if (!json) {
+            defaultRuntime.log(theme.warn(timeoutLine));
+            for (const line of diagnostics) {
+              defaultRuntime.log(theme.muted(line));
+            }
+          } else {
+            warnings.push(timeoutLine);
+            warnings.push(...diagnostics);
+          }
+
+          await markRestartSentinelError();
+          fail(
+            `Gateway restart timed out after ${restartWaitSeconds}s waiting for health checks.`,
+            [
+              formatCliCommand("openclaw gateway status --deep"),
+              formatCliCommand("openclaw doctor"),
+            ],
+          );
         }
 
-        await terminateStaleGatewayPids(health.staleGatewayPids);
-        const retryRestart = await service.restart({ env: process.env, stdout });
-        if (retryRestart.outcome === "scheduled") {
-          return retryRestart;
-        }
-        health = await waitForGatewayHealthyRestart({
+        let health = await waitForGatewayHealthyRestart({
           service,
           port: restartPort,
           attempts: POST_RESTART_HEALTH_ATTEMPTS,
           delayMs: POST_RESTART_HEALTH_DELAY_MS,
           includeUnknownListenersAsStale: process.platform === "win32",
         });
-      }
 
-      if (health.healthy) {
-        return;
-      }
+        if (!health.healthy && health.staleGatewayPids.length > 0) {
+          const staleMsg = `Found stale gateway process(es): ${health.staleGatewayPids.join(", ")}.`;
+          warnings.push(staleMsg);
+          if (!json) {
+            defaultRuntime.log(theme.warn(staleMsg));
+            defaultRuntime.log(theme.muted("Stopping stale process(es) and retrying restart..."));
+          }
 
-      const diagnostics = renderRestartDiagnostics(health);
-      const timeoutLine = `Timed out after ${restartWaitSeconds}s waiting for gateway port ${restartPort} to become healthy.`;
-      const runningNoPortLine =
-        health.runtime.status === "running" && health.portUsage.status === "free"
-          ? `Gateway process is running but port ${restartPort} is still free (startup hang/crash loop or very slow VM startup).`
-          : null;
-      if (!json) {
-        defaultRuntime.log(theme.warn(timeoutLine));
-        if (runningNoPortLine) {
-          defaultRuntime.log(theme.warn(runningNoPortLine));
+          await terminateStaleGatewayPids(health.staleGatewayPids);
+          const retryRestart = await service.restart({ env: process.env, stdout });
+          if (retryRestart.outcome === "scheduled") {
+            return retryRestart;
+          }
+          health = await waitForGatewayHealthyRestart({
+            service,
+            port: restartPort,
+            attempts: POST_RESTART_HEALTH_ATTEMPTS,
+            delayMs: POST_RESTART_HEALTH_DELAY_MS,
+            includeUnknownListenersAsStale: process.platform === "win32",
+          });
         }
-        for (const line of diagnostics) {
-          defaultRuntime.log(theme.muted(line));
-        }
-      } else {
-        warnings.push(timeoutLine);
-        if (runningNoPortLine) {
-          warnings.push(runningNoPortLine);
-        }
-        warnings.push(...diagnostics);
-      }
 
-      fail(`Gateway restart timed out after ${restartWaitSeconds}s waiting for health checks.`, [
-        formatCliCommand("openclaw gateway status --deep"),
-        formatCliCommand("openclaw doctor"),
-      ]);
-    },
-  });
+        if (health.healthy) {
+          return;
+        }
+
+        const diagnostics = renderRestartDiagnostics(health);
+        const timeoutLine = `Timed out after ${restartWaitSeconds}s waiting for gateway port ${restartPort} to become healthy.`;
+        const runningNoPortLine =
+          health.runtime.status === "running" && health.portUsage.status === "free"
+            ? `Gateway process is running but port ${restartPort} is still free (startup hang/crash loop or very slow VM startup).`
+            : null;
+        if (!json) {
+          defaultRuntime.log(theme.warn(timeoutLine));
+          if (runningNoPortLine) {
+            defaultRuntime.log(theme.warn(runningNoPortLine));
+          }
+          for (const line of diagnostics) {
+            defaultRuntime.log(theme.muted(line));
+          }
+        } else {
+          warnings.push(timeoutLine);
+          if (runningNoPortLine) {
+            warnings.push(runningNoPortLine);
+          }
+          warnings.push(...diagnostics);
+        }
+
+        await markRestartSentinelError();
+        fail(`Gateway restart timed out after ${restartWaitSeconds}s waiting for health checks.`, [
+          formatCliCommand("openclaw gateway status --deep"),
+          formatCliCommand("openclaw doctor"),
+        ]);
+      },
+    });
+  } catch (err) {
+    await markRestartSentinelError();
+    throw err;
+  }
+
+  if (shouldNotify && restarted && restartSentinelMarkedInProgress && !restartScheduled) {
+    try {
+      await transitionRestartSentinelStatus("ok", {
+        allowedCurrentStatuses: ["in-progress"],
+        env: restartSentinelEnv,
+      });
+    } catch {
+      // best-effort
+    }
+  }
+
+  return restarted;
 }
