@@ -2,6 +2,7 @@ import { getChannelPlugin, listChannelPlugins } from "../channels/plugins/index.
 import type { ChannelId, ChannelPlugin } from "../channels/plugins/types.js";
 import { normalizeAnyChannelId } from "../channels/registry.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { getActivePluginRegistryVersion } from "../plugins/runtime.js";
 import { normalizeStringEntries } from "../shared/string-normalization.js";
 import {
   INTERNAL_MESSAGE_CHANNEL,
@@ -19,6 +20,11 @@ export type CommandAuthorization = {
   from?: string;
   to?: string;
 };
+
+const ownerAllowFromListCache = new WeakMap<
+  OpenClawConfig,
+  WeakMap<ReadonlyArray<string | number>, Map<string, string[]>>
+>();
 
 function resolveProviderFromContext(ctx: MsgContext, cfg: OpenClawConfig): ChannelId | undefined {
   const explicitMessageChannel =
@@ -114,6 +120,12 @@ function resolveOwnerAllowFromList(params: {
   if (!Array.isArray(raw) || raw.length === 0) {
     return [];
   }
+  const registryVersion = getActivePluginRegistryVersion();
+  const cacheKey = `${registryVersion}\u0000${params.plugin?.id ?? ""}\u0000${params.accountId ?? ""}\u0000${params.providerId ?? ""}`;
+  const cached = ownerAllowFromListCache.get(params.cfg)?.get(raw)?.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
   const filtered: string[] = [];
   for (const entry of raw) {
     const trimmed = String(entry ?? "").trim();
@@ -137,12 +149,24 @@ function resolveOwnerAllowFromList(params: {
     }
     filtered.push(trimmed);
   }
-  return formatAllowFromList({
+  const formatted = formatAllowFromList({
     plugin: params.plugin,
     cfg: params.cfg,
     accountId: params.accountId,
     allowFrom: filtered,
   });
+  let cachedByConfig = ownerAllowFromListCache.get(params.cfg);
+  if (!cachedByConfig) {
+    cachedByConfig = new WeakMap<ReadonlyArray<string | number>, Map<string, string[]>>();
+    ownerAllowFromListCache.set(params.cfg, cachedByConfig);
+  }
+  let cachedByKey = cachedByConfig.get(raw);
+  if (!cachedByKey) {
+    cachedByKey = new Map<string, string[]>();
+    cachedByConfig.set(raw, cachedByKey);
+  }
+  cachedByKey.set(cacheKey, formatted);
+  return formatted;
 }
 
 /**
@@ -242,16 +266,14 @@ function resolveSenderCandidates(params: {
     pushCandidate(params.from);
   }
 
-  const normalized: string[] = [];
+  const normalized = new Set<string>();
   for (const sender of candidates) {
     const entries = normalizeAllowFromEntry({ plugin, cfg, accountId, value: sender });
     for (const entry of entries) {
-      if (!normalized.includes(entry)) {
-        normalized.push(entry);
-      }
+      normalized.add(entry);
     }
   }
-  return normalized;
+  return [...normalized];
 }
 
 export function resolveCommandAuthorization(params: {
@@ -289,13 +311,16 @@ export function resolveCommandAuthorization(params: {
     providerId,
     allowFrom: cfg.commands?.ownerAllowFrom,
   });
-  const contextOwnerAllowFromList = resolveOwnerAllowFromList({
-    plugin,
-    cfg,
-    accountId: ctx.AccountId,
-    providerId,
-    allowFrom: ctx.OwnerAllowFrom,
-  });
+  const contextOwnerAllowFromList =
+    Array.isArray(ctx.OwnerAllowFrom) && ctx.OwnerAllowFrom.length > 0
+      ? resolveOwnerAllowFromList({
+          plugin,
+          cfg,
+          accountId: ctx.AccountId,
+          providerId,
+          allowFrom: ctx.OwnerAllowFrom,
+        })
+      : [];
   const allowAll =
     allowFromList.length === 0 || allowFromList.some((entry) => entry.trim() === "*");
 
@@ -325,6 +350,8 @@ export function resolveCommandAuthorization(params: {
             : ownerCandidatesForCommands,
     ),
   );
+  const ownerListSet = new Set(ownerList);
+  const ownerCandidatesForCommandsSet = new Set(ownerCandidatesForCommands);
 
   const senderCandidates = resolveSenderCandidates({
     plugin,
@@ -336,11 +363,11 @@ export function resolveCommandAuthorization(params: {
     from,
     chatType: ctx.ChatType,
   });
-  const matchedSender = ownerList.length
-    ? senderCandidates.find((candidate) => ownerList.includes(candidate))
+  const matchedSender = ownerListSet.size
+    ? senderCandidates.find((candidate) => ownerListSet.has(candidate))
     : undefined;
-  const matchedCommandOwner = ownerCandidatesForCommands.length
-    ? senderCandidates.find((candidate) => ownerCandidatesForCommands.includes(candidate))
+  const matchedCommandOwner = ownerCandidatesForCommandsSet.size
+    ? senderCandidates.find((candidate) => ownerCandidatesForCommandsSet.has(candidate))
     : undefined;
   const senderId = matchedSender ?? senderCandidates[0];
 
@@ -367,8 +394,9 @@ export function resolveCommandAuthorization(params: {
   if (commandsAllowFromList !== null) {
     // commands.allowFrom is configured - use it for authorization
     const commandsAllowAll = commandsAllowFromList.some((entry) => entry.trim() === "*");
-    const matchedCommandsAllowFrom = commandsAllowFromList.length
-      ? senderCandidates.find((candidate) => commandsAllowFromList.includes(candidate))
+    const commandsAllowFromSet = new Set(commandsAllowFromList);
+    const matchedCommandsAllowFrom = commandsAllowFromSet.size
+      ? senderCandidates.find((candidate) => commandsAllowFromSet.has(candidate))
       : undefined;
     isAuthorizedSender = commandsAllowAll || Boolean(matchedCommandsAllowFrom);
   } else {
