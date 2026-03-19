@@ -534,15 +534,8 @@ function validateConfigObjectWithPluginsBase(
     if (isKnownPlugin) {
       return; // Known plugin embedding provider - validate at runtime
     }
-    // Also check manifest registry for plugin IDs not yet loaded
-    // Use workspace context from ensureRegistry
-    const { registry: manifestRegistry } = ensureRegistry();
-    const isKnownInManifest = manifestRegistry?.plugins.some((plugin) =>
-      plugin.providers.includes(normalizeProviderId(provider)),
-    );
-    if (isKnownInManifest) {
-      return; // Known in manifest - validate at runtime
-    }
+    // Note: We don't check manifest registry here because manifest doesn't have
+    // capability info - embeddings will be validated at runtime
     // Reject unknown providers at config time
     issues.push({ path, message: `unknown memorySearch provider: ${provider}` });
   };
@@ -563,14 +556,19 @@ function validateConfigObjectWithPluginsBase(
     }
     // Check if this is a loaded plugin embedding provider
     const pluginRegistry = getActivePluginRegistry();
-    const isKnownPlugin = pluginRegistry?.providers.some(
-      (entry) =>
+    const isKnownPlugin = pluginRegistry?.providers.some((entry) => {
+      const caps = entry.provider.routingCapabilities;
+      const capabilitiesArray = Array.isArray(caps) ? caps : [];
+      return (
         normalizeProviderId(entry.provider.id) === normalizeProviderId(fallback) &&
-        entry.provider.routingCapabilities?.includes("embedding"),
-    );
+        capabilitiesArray.includes("embedding")
+      );
+    });
     if (isKnownPlugin) {
       return; // Known plugin embedding provider - validate at runtime
     }
+    // Note: We don't check manifest registry here because manifest doesn't have
+    // capability info - embeddings will be validated at runtime
     // Reject unknown fallbacks at config time
     issues.push({ path, message: `unknown memorySearch fallback: ${fallback}` });
   };
