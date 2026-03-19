@@ -19,10 +19,17 @@ const CHROMIUM_BUNDLE_IDS = new Set([
   "com.brave.Browser",
   "com.brave.Browser.beta",
   "com.brave.Browser.nightly",
+  // Edge CFBundleIdentifier (used in app's own Info.plist)
   "com.microsoft.Edge",
   "com.microsoft.EdgeBeta",
   "com.microsoft.EdgeDev",
   "com.microsoft.EdgeCanary",
+  // Edge LaunchServices IDs (used in macOS default browser registration —
+  // these differ from CFBundleIdentifier and are what plutil returns)
+  "com.microsoft.edgemac",
+  "com.microsoft.edgemac.beta",
+  "com.microsoft.edgemac.dev",
+  "com.microsoft.edgemac.canary",
   "org.chromium.Chromium",
   "com.vivaldi.Vivaldi",
   "com.operasoftware.Opera",
@@ -172,33 +179,83 @@ function detectDefaultChromiumExecutable(platform: NodeJS.Platform): BrowserExec
   return null;
 }
 
+/**
+ * Known fallback executable paths for macOS bundle IDs that are commonly set
+ * as the system default browser. Used when osascript/defaults-based resolution
+ * fails (e.g. when the LaunchServices bundle ID differs from the app's own
+ * CFBundleIdentifier, as is the case with Microsoft Edge which registers as
+ * "com.microsoft.edgemac" in LaunchServices but ships as "com.microsoft.Edge").
+ */
+const KNOWN_BUNDLE_ID_PATHS: Partial<Record<string, string>> = {
+  "com.microsoft.edgemac": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+  "com.microsoft.edgemac.beta":
+    "/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta",
+  "com.microsoft.edgemac.dev":
+    "/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev",
+  "com.microsoft.edgemac.canary":
+    "/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary",
+  "com.microsoft.Edge": "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+  "com.microsoft.EdgeBeta":
+    "/Applications/Microsoft Edge Beta.app/Contents/MacOS/Microsoft Edge Beta",
+  "com.microsoft.EdgeDev": "/Applications/Microsoft Edge Dev.app/Contents/MacOS/Microsoft Edge Dev",
+  "com.microsoft.EdgeCanary":
+    "/Applications/Microsoft Edge Canary.app/Contents/MacOS/Microsoft Edge Canary",
+  "com.brave.Browser": "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+  "com.brave.Browser.beta":
+    "/Applications/Brave Browser Beta.app/Contents/MacOS/Brave Browser Beta",
+  "com.brave.Browser.nightly":
+    "/Applications/Brave Browser Nightly.app/Contents/MacOS/Brave Browser Nightly",
+  "org.chromium.Chromium": "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "com.vivaldi.Vivaldi": "/Applications/Vivaldi.app/Contents/MacOS/Vivaldi",
+  "company.thebrowser.Browser": "/Applications/Arc.app/Contents/MacOS/Arc",
+};
+
 function detectDefaultChromiumExecutableMac(): BrowserExecutable | null {
   const bundleId = detectDefaultBrowserBundleIdMac();
   if (!bundleId || !CHROMIUM_BUNDLE_IDS.has(bundleId)) {
     return null;
   }
 
+  const kind = inferKindFromIdentifier(bundleId);
+
+  // Primary: resolve via osascript (handles non-standard install locations)
   const appPathRaw = execText("/usr/bin/osascript", [
     "-e",
     `POSIX path of (path to application id "${bundleId}")`,
   ]);
-  if (!appPathRaw) {
-    return null;
+  if (appPathRaw) {
+    const appPath = appPathRaw.trim().replace(/\/$/, "");
+    const exeName = execText("/usr/bin/defaults", [
+      "read",
+      path.join(appPath, "Contents", "Info"),
+      "CFBundleExecutable",
+    ]);
+    if (exeName) {
+      const exePath = path.join(appPath, "Contents", "MacOS", exeName.trim());
+      if (exists(exePath)) {
+        return { kind, path: exePath };
+      }
+    }
   }
-  const appPath = appPathRaw.trim().replace(/\/$/, "");
-  const exeName = execText("/usr/bin/defaults", [
-    "read",
-    path.join(appPath, "Contents", "Info"),
-    "CFBundleExecutable",
-  ]);
-  if (!exeName) {
-    return null;
+
+  // Fallback: use known paths for bundle IDs whose LaunchServices registration
+  // differs from their CFBundleIdentifier (e.g. Edge registers as
+  // "com.microsoft.edgemac" in LaunchServices but the osascript lookup may
+  // fail or return no result). Also handles user ~/Applications installs.
+  const knownPath = KNOWN_BUNDLE_ID_PATHS[bundleId];
+  if (knownPath && exists(knownPath)) {
+    return { kind, path: knownPath };
   }
-  const exePath = path.join(appPath, "Contents", "MacOS", exeName.trim());
-  if (!exists(exePath)) {
-    return null;
+
+  // Also check user-scoped ~/Applications for the same known paths
+  const userKnownPath = knownPath?.startsWith("/Applications/")
+    ? path.join(os.homedir(), "Applications", knownPath.slice("/Applications/".length))
+    : null;
+  if (userKnownPath && exists(userKnownPath)) {
+    return { kind, path: userKnownPath };
   }
-  return { kind: inferKindFromIdentifier(bundleId), path: exePath };
+
+  return null;
 }
 
 function detectDefaultBrowserBundleIdMac(): string | null {
