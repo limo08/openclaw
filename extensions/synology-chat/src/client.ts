@@ -216,8 +216,24 @@ function parseNumericUserId(userId?: string | number): number | undefined {
   if (userId === undefined) {
     return undefined;
   }
-  const numericId = typeof userId === "number" ? userId : parseInt(userId, 10);
-  return Number.isNaN(numericId) ? undefined : numericId;
+
+  if (typeof userId === "number") {
+    return Number.isSafeInteger(userId) && userId > 0 ? userId : undefined;
+  }
+
+  // Strip known channel prefix (e.g. "synology-chat:4" → "4") so peer IDs
+  // stored as "<channel>:<id>" resolve to the numeric Chat API user_id.
+  // Only strip the known synology-chat prefix to avoid misparsing other formats.
+  const stripped = userId.replace(/^synology[-_]?chat:/i, "").trim();
+
+  // Require the remaining value to be strictly a positive decimal integer
+  // within JS safe integer range to prevent parseInt truncation attacks.
+  if (!/^\d+$/.test(stripped)) {
+    return undefined;
+  }
+
+  const n = Number(stripped);
+  return Number.isSafeInteger(n) && n > 0 ? n : undefined;
 }
 
 function doPost(url: string, body: string, allowInsecureSsl = true): Promise<boolean> {
