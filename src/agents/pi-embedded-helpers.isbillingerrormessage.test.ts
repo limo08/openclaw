@@ -860,4 +860,18 @@ describe("classifyFailoverReason", () => {
       ),
     ).toBe("timeout");
   });
+  it("classifies generic provider errors as timeout", () => {
+    expect(classifyFailoverReason("An unknown error occurred")).toBe("timeout");
+    expect(classifyFailoverReason("Internal server error")).toBe("timeout");
+    expect(classifyFailoverReason("Service unavailable")).toBe("timeout");
+    // Case-insensitive
+    expect(classifyFailoverReason("AN UNKNOWN ERROR OCCURRED")).toBe("timeout");
+    // Wrapped in provider payload
+    expect(classifyFailoverReason('{"error":{"message":"An unknown error occurred"}}')).toBe(
+      "timeout",
+    );
+    // "an error occurred" alone should NOT match (too broad)
+    expect(classifyFailoverReason("An error occurred")).toBeNull();
+    expect(classifyFailoverReason("A validation error occurred")).toBeNull();
+  });
 });
