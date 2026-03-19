@@ -86,6 +86,8 @@ apps/ios/*.mobileprovision
 .local/
 docs/.local/
 tmp/
+# Local ad-hoc test scripts
+test-ollama-fix.js
 IDENTITY.md
 USER.md
 .tgz
