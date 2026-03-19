@@ -498,6 +498,8 @@ importers:
 
   extensions/openshell: {}
 
+  extensions/parallel: {}
+
   extensions/perplexity: {}
 
   extensions/qianfan: {}
