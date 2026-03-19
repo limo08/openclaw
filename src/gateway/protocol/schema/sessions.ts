@@ -7,6 +7,8 @@ export const SessionsListParamsSchema = Type.Object(
     activeMinutes: Type.Optional(Type.Integer({ minimum: 1 })),
     includeGlobal: Type.Optional(Type.Boolean()),
     includeUnknown: Type.Optional(Type.Boolean()),
+    /** Ensure this session is in the result even if it would fall outside limit (e.g. when refreshing after a turn in another session). */
+    includeSessionKey: Type.Optional(NonEmptyString),
     /**
      * Read first 8KB of each session transcript to derive title from first user message.
      * Performs a file read per session - use `limit` to bound result set on large stores.

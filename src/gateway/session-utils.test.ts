@@ -788,6 +788,43 @@ describe("listSessionsFromStore search", () => {
     expect(result.sessions[0]?.model).toBe(runtimeModel);
   });
 
+  test("includeSessionKey pins selected session when it would fall outside limit", () => {
+    const now = Date.now();
+    const store: Record<string, SessionEntry> = {
+      "agent:main:oldest": {
+        sessionId: "sess-old",
+        updatedAt: now - 3000,
+      } as SessionEntry,
+      "agent:main:personal-chat": {
+        sessionId: "sess-personal",
+        updatedAt: now - 2000,
+      } as SessionEntry,
+      "agent:main:newest": {
+        sessionId: "sess-new",
+        updatedAt: now,
+      } as SessionEntry,
+    };
+
+    const withoutPin = listSessionsFromStore({
+      cfg: baseCfg,
+      storePath: "/tmp/sessions.json",
+      store,
+      opts: { limit: 1 },
+    });
+    expect(withoutPin.sessions).toHaveLength(1);
+    expect(withoutPin.sessions[0].key).toBe("agent:main:newest");
+
+    const withPin = listSessionsFromStore({
+      cfg: baseCfg,
+      storePath: "/tmp/sessions.json",
+      store,
+      opts: { limit: 1, includeSessionKey: "agent:main:personal-chat" },
+    });
+    expect(withPin.sessions).toHaveLength(2);
+    expect(withPin.sessions[0].key).toBe("agent:main:personal-chat"); // pinned at front
+    expect(withPin.sessions[1].key).toBe("agent:main:newest");
+  });
+
   test("exposes unknown totals when freshness is stale or missing", () => {
     const now = Date.now();
     const store: Record<string, SessionEntry> = {

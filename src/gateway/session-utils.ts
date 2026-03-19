@@ -856,6 +856,8 @@ export function listSessionsFromStore(params: {
   const includeUnknown = opts.includeUnknown === true;
   const includeDerivedTitles = opts.includeDerivedTitles === true;
   const includeLastMessage = opts.includeLastMessage === true;
+  const includeSessionKey =
+    typeof opts.includeSessionKey === "string" ? opts.includeSessionKey.trim() : "";
   const spawnedBy = typeof opts.spawnedBy === "string" ? opts.spawnedBy : "";
   const label = typeof opts.label === "string" ? opts.label.trim() : "";
   const agentId = typeof opts.agentId === "string" ? normalizeAgentId(opts.agentId) : "";
@@ -975,6 +977,11 @@ export function listSessionsFromStore(params: {
     })
     .toSorted((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
 
+  // Capture pinned session before filters that might drop it (e.g. activeMinutes, limit).
+  const pinnedSession = includeSessionKey
+    ? sessions.find((s) => s.key === includeSessionKey)
+    : undefined;
+
   if (search) {
     sessions = sessions.filter((s) => {
       const fields = [s.displayName, s.label, s.subject, s.sessionId, s.key];
@@ -990,6 +997,11 @@ export function listSessionsFromStore(params: {
   if (typeof opts.limit === "number" && Number.isFinite(opts.limit)) {
     const limit = Math.max(1, Math.floor(opts.limit));
     sessions = sessions.slice(0, limit);
+  }
+
+  // Ensure the selected session stays in the list when refreshing after a turn in another session.
+  if (pinnedSession && !sessions.some((s) => s.key === includeSessionKey)) {
+    sessions = [pinnedSession, ...sessions];
   }
 
   const finalSessions: GatewaySessionRow[] = sessions.map((s) => {
