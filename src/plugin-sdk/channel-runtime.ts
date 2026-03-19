@@ -37,6 +37,7 @@ export * from "../channels/plugins/media-payload.js";
 export { PAIRING_APPROVED_MESSAGE } from "../channels/plugins/pairing-message.js";
 export * from "./message-tool-schema.js";
 export * from "../channels/plugins/normalize/signal.js";
+export * from "../channels/plugins/normalize/slack.js";
 export * from "../channels/plugins/normalize/whatsapp.js";
 export * from "../channels/plugins/outbound/direct-text-media.js";
 export * from "../channels/plugins/outbound/interactive.js";
