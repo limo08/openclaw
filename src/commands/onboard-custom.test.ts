@@ -497,6 +497,42 @@ describe("applyCustomApiConfig", () => {
     expect(provider?.baseUrl).toBe("https://my-resource.openai.azure.com/openai/v1");
   });
 
+  it("re-onboard updates existing Azure provider instead of creating a duplicate", () => {
+    const oldProviderId = "custom-my-resource-openai-azure-com";
+    const result = applyCustomApiConfig({
+      config: {
+        models: {
+          providers: {
+            [oldProviderId]: {
+              baseUrl: "https://my-resource.openai.azure.com/openai/deployments/gpt-4",
+              api: "openai-completions",
+              models: [
+                {
+                  id: "gpt-4",
+                  name: "gpt-4",
+                  contextWindow: 1,
+                  maxTokens: 1,
+                  input: ["text"],
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                  reasoning: false,
+                },
+              ],
+            },
+          },
+        },
+      },
+      baseUrl: "https://my-resource.openai.azure.com",
+      modelId: "gpt-4",
+      compatibility: "openai",
+      apiKey: "key789",
+    });
+
+    expect(result.providerId).toBe(oldProviderId);
+    expect(result.providerIdRenamedFrom).toBeUndefined();
+    const provider = result.config.models?.providers?.[oldProviderId];
+    expect(provider?.baseUrl).toBe("https://my-resource.openai.azure.com/openai/v1");
+  });
+
   it("does not add azure fields for non-azure URLs", () => {
     const result = applyCustomApiConfig({
       config: {},
