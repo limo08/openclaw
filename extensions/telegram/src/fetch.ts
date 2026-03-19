@@ -8,6 +8,7 @@ import {
 } from "openclaw/plugin-sdk/infra-runtime";
 import { createSubsystemLogger } from "openclaw/plugin-sdk/runtime-env";
 import { Agent, EnvHttpProxyAgent, ProxyAgent, fetch as undiciFetch } from "undici";
+import { resolveTelegramApiHostname } from "./api-base.js";
 import {
   resolveTelegramAutoSelectFamilyDecision,
   resolveTelegramDnsResultOrderDecision,
@@ -17,7 +18,6 @@ import { getProxyUrlFromFetch } from "./proxy.js";
 const log = createSubsystemLogger("telegram/network");
 
 const TELEGRAM_AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_MS = 300;
-const TELEGRAM_API_HOSTNAME = "api.telegram.org";
 const TELEGRAM_FALLBACK_IPS: readonly string[] = ["149.154.167.220"];
 
 type RequestInitWithDispatcher = RequestInit & {
@@ -159,7 +159,7 @@ function shouldBypassEnvProxyForTelegramApi(env: NodeJS.ProcessEnv = process.env
   if (noProxyValue === "*") {
     return true;
   }
-  const targetHostname = TELEGRAM_API_HOSTNAME.toLowerCase();
+  const targetHostname = resolveTelegramApiHostname(env).toLowerCase();
   const targetPort = 443;
   const noProxyEntries = noProxyValue.split(/[,\s]/);
   for (let i = 0; i < noProxyEntries.length; i++) {
@@ -423,6 +423,7 @@ function createTelegramTransportAttempts(params: {
   defaultDispatcher: ReturnType<typeof createTelegramDispatcher>;
   allowFallback: boolean;
   fallbackPolicy?: PinnedDispatcherPolicy;
+  apiHostname: string;
 }): TelegramTransportAttempt[] {
   const attempts: TelegramTransportAttempt[] = [
     {
@@ -455,7 +456,7 @@ function createTelegramTransportAttempts(params: {
   const fallbackIpPolicy: PinnedDispatcherPolicy = {
     ...fallbackPolicy,
     pinnedHostname: {
-      hostname: TELEGRAM_API_HOSTNAME,
+      hostname: params.apiHostname,
       addresses: [...TELEGRAM_FALLBACK_IPS],
     },
   };
@@ -527,6 +528,7 @@ export function resolveTelegramTransport(
     defaultDispatcher,
     allowFallback: allowStickyFallback,
     fallbackPolicy: fallbackDispatcherPolicy,
+    apiHostname: resolveTelegramApiHostname(),
   });
 
   let stickyAttemptIndex = 0;
