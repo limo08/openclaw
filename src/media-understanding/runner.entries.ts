@@ -494,7 +494,27 @@ export async function runProviderEntry(params: {
 
     // Get auth for all providers (built-in and plugins)
     // Require API key if not a plugin OR if plugin doesn't implement this handler
-    const pluginImplementsHandler = isPluginProvider && provider?.describeImage;
+    // Check if plugin actually implements this specific handler (not inherited from built-in)
+    const pluginEntry = pluginRegistry?.providers.find(
+      (e: {
+        provider: {
+          id: string;
+          routingCapabilities?: unknown;
+          describeImage?: unknown;
+          transcribeAudio?: unknown;
+          describeVideo?: unknown;
+        };
+      }) =>
+        normalizeMediaProviderId(e.provider.id) === providerId &&
+        (capability === "image"
+          ? e.provider.describeImage
+          : capability === "audio"
+            ? e.provider.transcribeAudio
+            : capability === "video"
+              ? e.provider.describeVideo
+              : false),
+    );
+    const pluginImplementsHandler = !!pluginEntry;
     const imageAuth = await resolveProviderExecutionContext({
       providerId,
       cfg,
@@ -589,7 +609,12 @@ export async function runProviderEntry(params: {
 
     // Get auth for all providers (built-in and plugins)
     // Require API key for built-in, allow plugins without keys (local engines)
-    const pluginImplementsAudio = isPluginProvider && provider?.transcribeAudio;
+    // Check if plugin actually implements this specific handler (not inherited from built-in)
+    const audioPluginEntry = pluginRegistry?.providers.find(
+      (e: { provider: { id: string; routingCapabilities?: unknown; transcribeAudio?: unknown } }) =>
+        normalizeMediaProviderId(e.provider.id) === providerId && e.provider.transcribeAudio,
+    );
+    const pluginImplementsAudio = !!audioPluginEntry;
     const auth = await resolveProviderExecutionContext({
       providerId,
       cfg,
@@ -682,7 +707,12 @@ export async function runProviderEntry(params: {
 
   // Get auth for all providers (built-in and plugins)
   // Require API key for built-in, allow plugins without keys (local engines)
-  const pluginImplementsVideo = isPluginProvider && provider?.describeVideo;
+  // Check if plugin actually implements this specific handler (not inherited from built-in)
+  const videoPluginEntry = pluginRegistry?.providers.find(
+    (e: { provider: { id: string; routingCapabilities?: unknown; describeVideo?: unknown } }) =>
+      normalizeMediaProviderId(e.provider.id) === providerId && e.provider.describeVideo,
+  );
+  const pluginImplementsVideo = !!videoPluginEntry;
   const videoAuth = await resolveProviderExecutionContext({
     providerId,
     cfg,

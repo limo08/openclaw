@@ -535,7 +535,8 @@ function validateConfigObjectWithPluginsBase(
       return; // Known plugin embedding provider - validate at runtime
     }
     // Also check manifest registry for plugin IDs not yet loaded
-    const manifestRegistry = loadPluginManifestRegistry({ config });
+    // Use workspace context from ensureRegistry
+    const { registry: manifestRegistry } = ensureRegistry();
     const isKnownInManifest = manifestRegistry?.plugins.some((plugin) =>
       plugin.providers.includes(normalizeProviderId(provider)),
     );
