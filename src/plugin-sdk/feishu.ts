@@ -21,6 +21,7 @@ export {
   setTopLevelChannelAllowFrom,
   setTopLevelChannelDmPolicyWithAllowFrom,
   setTopLevelChannelGroupPolicy,
+  promptAccountId,
   splitSetupEntries,
 } from "../channels/plugins/setup-wizard-helpers.js";
 export { PAIRING_APPROVED_MESSAGE } from "../channels/plugins/pairing-message.js";
@@ -37,6 +38,7 @@ export type {
   ChannelConfiguredBindingMatch,
 } from "../channels/plugins/types.adapters.js";
 export type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
+export { resolveMentionGatingWithBypass } from "../channels/mention-gating.js";
 export { createReplyPrefixContext } from "../channels/reply-prefix.js";
 export { createChannelReplyPipeline } from "./channel-reply-pipeline.js";
 export type { OpenClawConfig as ClawdbotConfig, OpenClawConfig } from "../config/config.js";
