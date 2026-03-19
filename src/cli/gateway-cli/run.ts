@@ -10,12 +10,15 @@ import {
   resolveStateDir,
   resolveGatewayPort,
 } from "../../config/config.js";
+import { setConfigSource } from "../../config/sources/current.js";
+import { resolveConfigSource } from "../../config/sources/resolve.js";
 import { hasConfiguredSecretInput } from "../../config/types.secrets.js";
 import { resolveGatewayAuth } from "../../gateway/auth.js";
 import { startGatewayServer } from "../../gateway/server.js";
 import type { GatewayWsLogStyle } from "../../gateway/ws-logging.js";
 import { setGatewayWsLogStyle } from "../../gateway/ws-logging.js";
 import { setVerbose } from "../../globals.js";
+import { loadDotEnv } from "../../infra/dotenv.js";
 import { GatewayLockError } from "../../infra/gateway-lock.js";
 import { formatPortDiagnostics, inspectPortUsage } from "../../infra/ports.js";
 import { cleanStaleGatewayProcessesSync } from "../../infra/restart-stale-pids.js";
@@ -198,7 +201,16 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
     await ensureDevGatewayConfig({ reset: Boolean(opts.reset) });
   }
 
-  const cfg = loadConfig();
+  // Initialize config source (file vs Nacos) before preflight so port/bind and
+  // config-exists / gateway.mode checks use Nacos when OPENCLAW_CONFIG_SOURCE=nacos.
+  loadDotEnv({ quiet: true });
+  setConfigSource(resolveConfigSource(process.env));
+
+  // loadConfig() always uses file IO unless a runtime snapshot exists, so in Nacos-only
+  // deployments it would bind the wrong port and use file-based gateway.mode. Use the
+  // snapshot from the current source (Nacos or file) for preflight.
+  const preflightSnapshot = await readConfigFileSnapshot().catch(() => null);
+  const cfg = preflightSnapshot?.valid ? preflightSnapshot.config : loadConfig();
   const portOverride = parsePort(opts.port);
   if (opts.port !== undefined && portOverride === null) {
     defaultRuntime.error("Invalid port");
@@ -311,7 +323,7 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
   }
   const tokenRaw = toOptionString(opts.token);
 
-  const snapshot = await readConfigFileSnapshot().catch(() => null);
+  const snapshot = preflightSnapshot;
   const configExists = snapshot?.exists ?? fs.existsSync(CONFIG_PATH);
   const configAuditPath = path.join(resolveStateDir(process.env), "logs", "config-audit.jsonl");
   const mode = cfg.gateway?.mode;
