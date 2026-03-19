@@ -12,6 +12,7 @@ export type BlockReplyPipeline = {
   didStream: () => boolean;
   isAborted: () => boolean;
   hasSentPayload: (payload: ReplyPayload) => boolean;
+  hasAttemptedPayload: (payload: ReplyPayload) => boolean;
 };
 
 export type BlockReplyBuffer = {
@@ -89,6 +90,8 @@ export function createBlockReplyPipeline(params: {
   const seenKeys = new Set<string>();
   const bufferedKeys = new Set<string>();
   const bufferedPayloadKeys = new Set<string>();
+  /** Persistent record of every payload key that started a delivery attempt. */
+  const attemptedKeys = new Set<string>();
   const bufferedPayloads: ReplyPayload[] = [];
   let sendChain: Promise<void> = Promise.resolve();
   let aborted = false;
@@ -119,6 +122,7 @@ export function createBlockReplyPipeline(params: {
         if (aborted) {
           return false;
         }
+        attemptedKeys.add(payloadKey);
         await withTimeout(
           Promise.resolve(
             onBlockReply(payload, {
@@ -247,6 +251,10 @@ export function createBlockReplyPipeline(params: {
     hasSentPayload: (payload) => {
       const payloadKey = createBlockReplyContentKey(payload);
       return sentContentKeys.has(payloadKey);
+    },
+    hasAttemptedPayload: (payload) => {
+      const payloadKey = createBlockReplyPayloadKey(payload);
+      return attemptedKeys.has(payloadKey);
     },
   };
 }
