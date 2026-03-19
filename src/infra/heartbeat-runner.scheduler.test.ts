@@ -283,4 +283,40 @@ describe("startHeartbeatRunner", () => {
 
     runner.stop();
   });
+
+  it("re-arms timer when runOnce throws — inner catch continues, outer finally reschedules (#45772)", async () => {
+    useFakeHeartbeatTime();
+
+    // The inner per-agent try/catch swallows runOnce errors via `continue`.
+    // After the loop completes, the outer `finally` calls scheduleNext().
+    // This ensures the timer is always re-armed even after an error — the
+    // critical fix for #45772 where the requests-in-flight early return (and
+    // other short-circuit exits) left scheduleNext() unreachable.
+    //
+    // Note: the inner catch IS what handles the thrown error here. The outer
+    // finally still runs on loop completion, re-arming the timer. This covers
+    // the same class of silent-death bugs as #45772 (any early exit or error
+    // path that previously bypassed the scheduleNext() call at the end of run).
+    let callCount = 0;
+    const runSpy = vi.fn().mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error("simulated runOnce failure");
+      }
+      return { status: "ran", durationMs: 1 };
+    });
+
+    const runner = startDefaultRunner(runSpy);
+
+    // First heartbeat fires and throws — inner catch handles it, outer
+    // finally re-arms the timer.
+    await vi.advanceTimersByTimeAsync(30 * 60_000 + 1_000);
+    expect(runSpy).toHaveBeenCalledTimes(1);
+
+    // Second heartbeat MUST still fire — the timer must have been re-armed.
+    await vi.advanceTimersByTimeAsync(30 * 60_000 + 1_000);
+    expect(runSpy).toHaveBeenCalledTimes(2);
+
+    runner.stop();
+  });
 });
