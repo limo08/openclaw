@@ -5,6 +5,7 @@ import {
   type ExecAsk,
   type ExecSecurity,
   evaluateShellAllowlist,
+  evaluateShellDenylist,
   requiresExecApproval,
   resolveExecApprovalsFromFile,
 } from "../infra/exec-approvals.js";
@@ -129,7 +130,13 @@ export async function executeNodeHostCommand(
   });
   let analysisOk = baseAllowlistEval.analysisOk;
   let allowlistSatisfied = false;
-  if (hostAsk === "on-miss" && hostSecurity === "allowlist" && analysisOk) {
+  let denylistMatched = false;
+  if (
+    analysisOk &&
+    ((hostAsk === "on-miss" && hostSecurity === "allowlist") ||
+      (hostAsk === "on-match" && hostSecurity === "denylist") ||
+      hostSecurity === "denylist")
+  ) {
     try {
       const approvalsSnapshot = await callGatewayTool<{ file: string }>(
         "exec.approvals.node.get",
@@ -144,9 +151,9 @@ export async function executeNodeHostCommand(
         const resolved = resolveExecApprovalsFromFile({
           file: approvalsFile as ExecApprovalsFile,
           agentId: params.agentId,
-          overrides: { security: "allowlist" },
+          overrides: { security: hostSecurity },
         });
-        // Allowlist-only precheck; safe bins are node-local and may diverge.
+        // Safe bins are node-local and may diverge, so only use allowlist entries here.
         const allowlistEval = evaluateShellAllowlist({
           command: params.command,
           allowlist: resolved.allowlist,
@@ -156,7 +163,18 @@ export async function executeNodeHostCommand(
           platform: nodeInfo?.platform,
           trustedSafeBinDirs: params.trustedSafeBinDirs,
         });
+        const denylistEval = evaluateShellDenylist({
+          command: params.command,
+          entries: resolved.denylist,
+          cwd: params.workdir,
+          env: params.env,
+          platform: nodeInfo?.platform,
+        });
         allowlistSatisfied = allowlistEval.allowlistSatisfied;
+        denylistMatched =
+          denylistEval.analysisOk &&
+          denylistEval.denylistMatched &&
+          !allowlistEval.allowlistSatisfied;
         analysisOk = allowlistEval.analysisOk;
       }
     } catch {
@@ -176,6 +194,7 @@ export async function executeNodeHostCommand(
       security: hostSecurity,
       analysisOk,
       allowlistSatisfied,
+      denylistMatched,
     }) || obfuscation.detected;
   const invokeTimeoutMs = Math.max(
     10_000,
@@ -282,6 +301,20 @@ export async function executeNodeHostCommand(
 
       if (baseDecision.timedOut && askFallback === "full" && approvedByAsk) {
         approvalDecision = "allow-once";
+      } else if (baseDecision.timedOut && askFallback === "allowlist") {
+        if (!analysisOk || !allowlistSatisfied) {
+          deniedReason = "approval-timeout (allowlist-miss)";
+        } else {
+          approvedByAsk = true;
+          approvalDecision = "allow-once";
+        }
+      } else if (baseDecision.timedOut && askFallback === "denylist") {
+        if (denylistMatched) {
+          deniedReason = "approval-timeout (denylist-match)";
+        } else {
+          approvedByAsk = true;
+          approvalDecision = "allow-once";
+        }
       } else if (decision === "allow-once") {
         approvedByAsk = true;
         approvalDecision = "allow-once";
@@ -337,6 +370,54 @@ export async function executeNodeHostCommand(
       }
     })();
 
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            unavailableReason !== null
+              ? (buildExecApprovalUnavailableReplyPayload({
+                  warningText,
+                  reason: unavailableReason,
+                  channelLabel: initiatingSurface.channelLabel,
+                  sentApproverDms,
+                }).text ?? "")
+              : buildApprovalPendingMessage({
+                  warningText,
+                  approvalSlug,
+                  approvalId,
+                  command: prepared.plan.commandPreview ?? prepared.plan.commandText,
+                  cwd: runCwd,
+                  host: "node",
+                  nodeId,
+                }),
+        },
+      ],
+      details:
+        unavailableReason !== null
+          ? ({
+              status: "approval-unavailable",
+              reason: unavailableReason,
+              channelLabel: initiatingSurface.channelLabel,
+              sentApproverDms,
+              host: "node",
+              command: params.command,
+              cwd: params.workdir,
+              nodeId,
+              warningText,
+            } satisfies ExecToolDetails)
+          : ({
+              status: "approval-pending",
+              approvalId,
+              approvalSlug,
+              expiresAtMs,
+              host: "node",
+              command: params.command,
+              cwd: params.workdir,
+              nodeId,
+              warningText,
+            } satisfies ExecToolDetails),
+    };
     return execHostShared.buildExecApprovalPendingToolResult({
       host: "node",
       command: params.command,
