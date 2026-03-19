@@ -75,6 +75,13 @@ export async function persistSessionUsageUpdate(params: {
   systemPromptReport?: SessionSystemPromptReport;
   cliSessionId?: string;
   logLabel?: string;
+  /**
+   * When true, the model/provider/contextTokens fields are NOT persisted to
+   * the session entry. This prevents heartbeat model overrides from bleeding
+   * into the main session's stored state (model, context window, etc.).
+   * Token usage counters are still recorded.
+   */
+  isHeartbeat?: boolean;
 }): Promise<void> {
   const { storePath, sessionKey } = params;
   if (!storePath || !sessionKey) {
@@ -117,9 +124,15 @@ export async function persistSessionUsageUpdate(params: {
           });
           const existingEstimatedCostUsd = resolveNonNegativeNumber(entry.estimatedCostUsd) ?? 0;
           const patch: Partial<SessionEntry> = {
-            modelProvider: params.providerUsed ?? entry.modelProvider,
-            model: params.modelUsed ?? entry.model,
-            contextTokens: resolvedContextTokens,
+            // When isHeartbeat is true, preserve the session's existing model/provider/context
+            // so that a heartbeat model override does not bleed into the main session state.
+            ...(params.isHeartbeat
+              ? {}
+              : {
+                  modelProvider: params.providerUsed ?? entry.modelProvider,
+                  model: params.modelUsed ?? entry.model,
+                  contextTokens: resolvedContextTokens,
+                }),
             systemPromptReport: params.systemPromptReport ?? entry.systemPromptReport,
             updatedAt: Date.now(),
           };
@@ -150,7 +163,9 @@ export async function persistSessionUsageUpdate(params: {
     return;
   }
 
-  if (params.modelUsed || params.contextTokensUsed) {
+  // When isHeartbeat is true, skip persisting model/context entirely — the heartbeat
+  // model override should not affect the session's stored model state.
+  if (!params.isHeartbeat && (params.modelUsed || params.contextTokensUsed)) {
     try {
       await updateSessionStoreEntry({
         storePath,
