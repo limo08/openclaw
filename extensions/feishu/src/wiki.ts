@@ -37,24 +37,81 @@ async function listSpaces(client: Lark.Client) {
   };
 }
 
-async function listNodes(client: Lark.Client, spaceId: string, parentNodeToken?: string) {
-  const res = await client.wiki.spaceNode.list({
-    path: { space_id: spaceId },
-    params: { parent_node_token: parentNodeToken },
-  });
-  if (res.code !== 0) {
-    throw new Error(res.msg);
-  }
+export async function listNodes(
+  client: Lark.Client,
+  spaceId: string,
+  parentNodeToken?: string,
+  logger?: { warn?: (msg: string) => void },
+) {
+  const allNodes: Array<{
+    node_token?: string;
+    obj_token?: string;
+    obj_type?: string;
+    title?: string;
+    has_child?: boolean;
+  }> = [];
+  
+  let pageToken: string | undefined = undefined;
+  let pageCount = 0;
+  const maxPages = 100; // Safety limit to prevent infinite loops
+  
+  do {
+    const res = await client.wiki.spaceNode.list({
+      path: { space_id: spaceId },
+      params: {
+        parent_node_token: parentNodeToken,
+        page_size: 50, // Max allowed by Feishu API
+        page_token: pageToken,
+      },
+    });
+    
+    if (res.code !== 0) {
+      throw new Error(res.msg);
+    }
+    
+    // Collect nodes from current page
+    if (res.data?.items) {
+      allNodes.push(
+        ...res.data.items.map((n) => ({
+          node_token: n.node_token,
+          obj_token: n.obj_token,
+          obj_type: n.obj_type,
+          title: n.title,
+          has_child: n.has_child,
+        }))
+      );
+    }
+    
+    // Check if there are more pages
+    const hasMore = res.data?.has_more === true;
+    pageToken = res.data?.page_token;
+    pageCount++;
+    
+    // Safety limit: stop at 100 pages (5000 nodes)
+    if (pageCount >= maxPages && hasMore) {
+      (logger?.warn ?? console.warn)(
+        `[feishu_wiki] Reached pagination limit (${maxPages} pages, ${allNodes.length} nodes). ` +
+        `Space may have more nodes. space_id=${spaceId}, parent=${parentNodeToken || 'root'}`
+      );
+    }
+    
+    // Continue fetching if there are more pages and we haven't hit the safety limit.
+    // Log a warning if the API signals more pages but returns no page_token — this
+    // indicates an unexpected API response and avoids silent data truncation.
+    if (!hasMore || pageCount >= maxPages) {
+      break;
+    }
+    if (!pageToken) {
+      (logger?.warn ?? console.warn)(
+        `[feishu_wiki] API returned has_more=true but no page_token — stopping pagination. ` +
+        `space_id=${spaceId}, page=${pageCount}, nodes=${allNodes.length}`
+      );
+      break;
+    }
+  } while (true);
 
   return {
-    nodes:
-      res.data?.items?.map((n) => ({
-        node_token: n.node_token,
-        obj_token: n.obj_token,
-        obj_type: n.obj_type,
-        title: n.title,
-        has_child: n.has_child,
-      })) ?? [],
+    nodes: allNodes,
   };
 }
 
@@ -192,7 +249,7 @@ export function registerFeishuWikiTools(api: OpenClawPluginApi) {
               case "spaces":
                 return jsonToolResult(await listSpaces(client));
               case "nodes":
-                return jsonToolResult(await listNodes(client, p.space_id, p.parent_node_token));
+                return jsonToolResult(await listNodes(client, p.space_id, p.parent_node_token, api.logger));
               case "get":
                 return jsonToolResult(await getNode(client, p.token));
               case "search":
