@@ -555,6 +555,46 @@ describe("applyCustomApiConfig", () => {
     ).toBeUndefined();
   });
 
+  it("re-onboard preserves user-customized fields for non-azure models", () => {
+    const result = applyCustomApiConfig({
+      config: {
+        models: {
+          providers: {
+            custom: {
+              baseUrl: "https://llm.example.com/v1",
+              api: "openai-completions",
+              models: [
+                {
+                  id: "foo-large",
+                  name: "My Custom Model",
+                  reasoning: true,
+                  input: ["text", "image"],
+                  cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+                  contextWindow: 131072,
+                  maxTokens: 16384,
+                },
+              ],
+            },
+          },
+        },
+      } as OpenClawConfig,
+      baseUrl: "https://llm.example.com/v1",
+      modelId: "foo-large",
+      compatibility: "openai",
+      apiKey: "key",
+      providerId: "custom",
+    });
+    const model = result.config.models?.providers?.custom?.models?.find(
+      (m) => m.id === "foo-large",
+    );
+    expect(model?.name).toBe("My Custom Model");
+    expect(model?.reasoning).toBe(true);
+    expect(model?.input).toEqual(["text", "image"]);
+    expect(model?.cost).toEqual({ input: 1, output: 2, cacheRead: 0, cacheWrite: 0 });
+    expect(model?.maxTokens).toBe(16384);
+    expect(model?.contextWindow).toBe(131072);
+  });
+
   it("preserves existing per-model thinking when already set for azure reasoning model", () => {
     const providerId = "custom-my-resource-openai-azure-com";
     const modelRef = `${providerId}/o3-mini`;
