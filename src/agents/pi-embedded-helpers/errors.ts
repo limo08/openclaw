@@ -834,6 +834,38 @@ const IMAGE_DIMENSION_ERROR_RE =
 const IMAGE_DIMENSION_PATH_RE = /messages\.(\d+)\.content\.(\d+)\.image/i;
 const IMAGE_SIZE_ERROR_RE = /image exceeds\s*(\d+(?:\.\d+)?)\s*mb/i;
 
+/**
+ * Extract a retry-after delay (in ms) from a rate-limit error message.
+ *
+ * Providers embed retry hints in different formats:
+ *   - Anthropic: "retry after 30 seconds", "try again in 30s"
+ *   - OpenAI:    "Please retry after 30s", "Rate limit ... try again in 30.000s"
+ *   - NIM/Kimi:  "retry after 5 seconds"
+ *
+ * Returns a clamped value between 1_000 ms and 120_000 ms, or `undefined`
+ * if no parseable hint is found.
+ */
+export function extractRetryAfterMs(raw: string | undefined | null): number | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const m = raw.match(
+    /(?:retry[_ ]?after|try again in)[:\s]*(\d+(?:\.\d+)?)\s*(ms|s(?:ec(?:ond)?s?)?)?/i,
+  );
+  if (!m) {
+    return undefined;
+  }
+  const value = parseFloat(m[1]);
+  if (!Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  // Dispatch on the captured unit group — default to seconds when no unit is present
+  const unit = (m[2] ?? "s").toLowerCase();
+  const ms = unit === "ms" ? value : value * 1_000;
+  // Clamp between 1s and 120s
+  return Math.min(Math.max(ms, 1_000), 120_000);
+}
+
 export function isMissingToolCallInputError(raw: string): boolean {
   if (!raw) {
     return false;
@@ -855,7 +887,26 @@ function isJsonApiInternalServerError(raw: string): boolean {
   const value = raw.toLowerCase();
   // Anthropic often wraps transient 500s in JSON payloads like:
   // {"type":"error","error":{"type":"api_error","message":"Internal server error"}}
-  return value.includes('"type":"api_error"') && value.includes("internal server error");
+  if (value.includes('"type":"api_error"') && value.includes("internal server error")) {
+    return true;
+  }
+  // OpenAI/Codex wraps transient 500s as:
+  // {"type":"error","error":{"type":"server_error","code":"server_error","message":"..."}}
+  // Use JSON.parse to safely handle pretty-printed or spaced JSON.
+  try {
+    const parsed = JSON.parse(raw);
+    const errType = parsed?.error?.type;
+    const errCode = parsed?.error?.code;
+    if (errType === "server_error" && errCode === "server_error") {
+      return true;
+    }
+  } catch {
+    // Not valid JSON — fall through to substring check for compact format
+    if (value.includes('"type":"server_error"') && value.includes('"code":"server_error"')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function parseImageDimensionError(raw: string): {
