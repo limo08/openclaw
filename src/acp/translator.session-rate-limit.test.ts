@@ -10,6 +10,15 @@ import { listThinkingLevels } from "../auto-reply/thinking.js";
 import type { GatewayClient } from "../gateway/client.js";
 import type { EventFrame } from "../gateway/protocol/index.js";
 import { createInMemorySessionStore } from "./session.js";
+
+// Mock provider-runtime to avoid slow dynamic imports / module resolution on Windows CI
+vi.mock("../plugins/provider-runtime.js", () => ({
+  resolveProviderUsageSnapshotWithPlugin: vi.fn().mockResolvedValue(null),
+  resetProviderRuntimeHookCacheForTest: vi.fn(),
+  resolveProviderBinaryThinking: vi.fn().mockReturnValue(false),
+  resolveProviderDefaultThinkingLevel: vi.fn().mockReturnValue(undefined),
+  resolveProviderXHighThinking: vi.fn().mockReturnValue(undefined),
+}));
 import { AcpGatewayAgent } from "./translator.js";
 import { createAcpConnection, createAcpGateway } from "./translator.test-helpers.js";
 

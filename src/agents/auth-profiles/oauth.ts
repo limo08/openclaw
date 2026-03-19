@@ -17,7 +17,12 @@ import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
 import type { AuthProfileStore, OAuthCredential } from "./types.js";
 
-const OAUTH_PROVIDER_IDS = new Set<string>(getOAuthProviders().map((provider) => provider.id));
+function getOAuthProviderIds(): Set<string> {
+  if (typeof getOAuthProviders !== "function") {
+    return new Set<string>();
+  }
+  return new Set<string>(getOAuthProviders().map((provider) => provider.id));
+}
 
 let providerRuntimePromise:
   | Promise<typeof import("../../plugins/provider-runtime.runtime.js")>
@@ -29,7 +34,7 @@ function loadProviderRuntime() {
 }
 
 const isOAuthProvider = (provider: string): provider is OAuthProvider =>
-  OAUTH_PROVIDER_IDS.has(provider);
+  getOAuthProviderIds().has(provider);
 
 const resolveOAuthProvider = (provider: string): OAuthProvider | null =>
   isOAuthProvider(provider) ? provider : null;

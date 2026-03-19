@@ -2,6 +2,7 @@ import { SsrFBlockedError } from "../infra/net/ssrf.js";
 import { isChromeReachable, resolveOpenClawUserDataDir } from "./chrome.js";
 import type { ResolvedBrowserProfile } from "./config.js";
 import { resolveProfile } from "./config.js";
+import { DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME } from "./constants.js";
 import { BrowserProfileNotFoundError, toBrowserErrorResponse } from "./errors.js";
 import { InvalidBrowserNavigationUrlError } from "./navigation-guard.js";
 import { getBrowserProfileCapabilities } from "./profile-capabilities.js";
@@ -38,6 +39,47 @@ export function listKnownProfileNames(state: BrowserServerState): string[] {
     names.add(name);
   }
   return [...names];
+}
+
+function resolveImplicitProfileName(state: BrowserServerState): string {
+  const defaultProfileName = state.resolved.defaultProfile;
+  if (!state.resolved.headless) {
+    return defaultProfileName;
+  }
+
+  const rawDefaultProfile = state.resolved.profiles[defaultProfileName];
+  const defaultProfile = resolveProfile(state.resolved, defaultProfileName);
+  if (!defaultProfile) {
+    return defaultProfileName;
+  }
+
+  const defaultDriver =
+    typeof rawDefaultProfile === "object" && rawDefaultProfile
+      ? (rawDefaultProfile as { driver?: string }).driver
+      : undefined;
+  const defaultRequiresRelay =
+    defaultDriver !== "openclaw" && defaultDriver !== "existing-session" && defaultDriver != null;
+  if (!defaultRequiresRelay) {
+    return defaultProfileName;
+  }
+
+  const rawManagedProfile = state.resolved.profiles[DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME];
+  const managedProfile = resolveProfile(state.resolved, DEFAULT_OPENCLAW_BROWSER_PROFILE_NAME);
+  if (!managedProfile) {
+    return defaultProfileName;
+  }
+
+  const managedDriver =
+    typeof rawManagedProfile === "object" && rawManagedProfile
+      ? (rawManagedProfile as { driver?: string }).driver
+      : undefined;
+  const managedRequiresRelay =
+    managedDriver !== "openclaw" && managedDriver !== "existing-session" && managedDriver != null;
+  if (managedRequiresRelay) {
+    return defaultProfileName;
+  }
+
+  return managedProfile.name;
 }
 
 /**
@@ -129,7 +171,7 @@ export function createBrowserRouteContext(opts: ContextOptions): BrowserRouteCon
 
   const forProfile = (profileName?: string): ProfileContext => {
     const current = state();
-    const name = profileName ?? current.resolved.defaultProfile;
+    const name = profileName ?? resolveImplicitProfileName(current);
     const profile = resolveBrowserProfileWithHotReload({
       current,
       refreshConfigFromDisk,

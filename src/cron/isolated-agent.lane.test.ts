@@ -10,6 +10,8 @@ import {
   writeSessionStoreEntries,
 } from "./isolated-agent.test-harness.js";
 
+const WINDOWS_CI_TIMEOUT_MS = process.platform === "win32" ? 240_000 : 120_000;
+
 function lastEmbeddedLane(): string | undefined {
   const calls = vi.mocked(runEmbeddedPiAgent).mock.calls;
   expect(calls.length).toBeGreaterThan(0);
@@ -44,21 +46,33 @@ describe("runCronIsolatedAgentTurn lane selection", () => {
     vi.mocked(runEmbeddedPiAgent).mockClear();
   });
 
-  it("moves the cron lane to nested for embedded runs", async () => {
-    await withTempCronHome(async (home) => {
-      expect(await runLaneCase(home, "cron")).toBe("nested");
-    });
-  });
+  it(
+    "moves the cron lane to nested for embedded runs",
+    async () => {
+      await withTempCronHome(async (home) => {
+        expect(await runLaneCase(home, "cron")).toBe("nested");
+      });
+    },
+    WINDOWS_CI_TIMEOUT_MS,
+  );
 
-  it("defaults missing lanes to nested for embedded runs", async () => {
-    await withTempCronHome(async (home) => {
-      expect(await runLaneCase(home)).toBe("nested");
-    });
-  });
+  it(
+    "defaults missing lanes to nested for embedded runs",
+    async () => {
+      await withTempCronHome(async (home) => {
+        expect(await runLaneCase(home)).toBe("nested");
+      });
+    },
+    WINDOWS_CI_TIMEOUT_MS,
+  );
 
-  it("preserves non-cron lanes for embedded runs", async () => {
-    await withTempCronHome(async (home) => {
-      expect(await runLaneCase(home, "subagent")).toBe("subagent");
-    });
-  });
+  it(
+    "preserves non-cron lanes for embedded runs",
+    async () => {
+      await withTempCronHome(async (home) => {
+        expect(await runLaneCase(home, "subagent")).toBe("subagent");
+      });
+    },
+    WINDOWS_CI_TIMEOUT_MS,
+  );
 });

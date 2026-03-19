@@ -5,7 +5,6 @@ import type { OpenClawConfig } from "../config/config.js";
 import { applyMergePatch } from "../config/merge-patch.js";
 import { openBoundaryFileSync } from "../infra/boundary-file-read.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import type { BundleMcpServerConfig } from "../plugins/bundle-mcp.js";
 import { normalizePluginsConfig, resolveEffectiveEnableState } from "../plugins/config-state.js";
 import { loadPluginManifestRegistry } from "../plugins/manifest-registry.js";
 import { isRecord } from "../utils.js";
@@ -19,11 +18,14 @@ export const SANITIZED_PROJECT_PI_KEYS = ["shellPath", "shellCommandPrefix"] as 
 
 export type EmbeddedPiProjectSettingsPolicy = "trusted" | "sanitize" | "ignore";
 
-type PiSettingsSnapshot = ReturnType<SettingsManager["getGlobalSettings"]> & {
-  mcpServers?: Record<string, BundleMcpServerConfig>;
+type PiSettingsSnapshot = ReturnType<SettingsManager["getGlobalSettings"]>;
+type PiSettingsSnapshotWithMcp = PiSettingsSnapshot & {
+  mcpServers?: ReturnType<typeof loadEmbeddedPiMcpConfig>["mcpServers"];
 };
 
-function sanitizePiSettingsSnapshot(settings: PiSettingsSnapshot): PiSettingsSnapshot {
+function sanitizePiSettingsSnapshot(
+  settings: PiSettingsSnapshotWithMcp,
+): PiSettingsSnapshotWithMcp {
   const sanitized = { ...settings };
   // Never allow plugin or workspace-local settings to override shell execution behavior.
   for (const key of SANITIZED_PROJECT_PI_KEYS) {
@@ -32,7 +34,7 @@ function sanitizePiSettingsSnapshot(settings: PiSettingsSnapshot): PiSettingsSna
   return sanitized;
 }
 
-function sanitizeProjectSettings(settings: PiSettingsSnapshot): PiSettingsSnapshot {
+function sanitizeProjectSettings(settings: PiSettingsSnapshotWithMcp): PiSettingsSnapshotWithMcp {
   return sanitizePiSettingsSnapshot(settings);
 }
 
@@ -57,7 +59,7 @@ function loadBundleSettingsFile(params: {
       log.warn(`skipping bundle settings file with non-object JSON: ${absolutePath}`);
       return null;
     }
-    return sanitizePiSettingsSnapshot(raw as PiSettingsSnapshot);
+    return sanitizePiSettingsSnapshot(raw as PiSettingsSnapshotWithMcp);
   } catch (error) {
     log.warn(`failed to parse bundle settings file ${absolutePath}: ${String(error)}`);
     return null;
@@ -69,7 +71,7 @@ function loadBundleSettingsFile(params: {
 export function loadEnabledBundlePiSettingsSnapshot(params: {
   cwd: string;
   cfg?: OpenClawConfig;
-}): PiSettingsSnapshot {
+}): PiSettingsSnapshotWithMcp {
   const workspaceDir = params.cwd.trim();
   if (!workspaceDir) {
     return {};
@@ -83,7 +85,7 @@ export function loadEnabledBundlePiSettingsSnapshot(params: {
   }
 
   const normalizedPlugins = normalizePluginsConfig(params.cfg?.plugins);
-  let snapshot: PiSettingsSnapshot = {};
+  let snapshot: PiSettingsSnapshotWithMcp = {};
 
   for (const record of registry.plugins) {
     const settingsFiles = record.settingsFiles ?? [];
@@ -138,11 +140,11 @@ export function resolveEmbeddedPiProjectSettingsPolicy(
 }
 
 export function buildEmbeddedPiSettingsSnapshot(params: {
-  globalSettings: PiSettingsSnapshot;
-  pluginSettings?: PiSettingsSnapshot;
-  projectSettings: PiSettingsSnapshot;
+  globalSettings: PiSettingsSnapshotWithMcp;
+  pluginSettings?: PiSettingsSnapshotWithMcp;
+  projectSettings: PiSettingsSnapshotWithMcp;
   policy: EmbeddedPiProjectSettingsPolicy;
-}): PiSettingsSnapshot {
+}): PiSettingsSnapshotWithMcp {
   const effectiveProjectSettings =
     params.policy === "ignore"
       ? {}
@@ -152,8 +154,8 @@ export function buildEmbeddedPiSettingsSnapshot(params: {
   const withPluginSettings = applyMergePatch(
     params.globalSettings,
     sanitizePiSettingsSnapshot(params.pluginSettings ?? {}),
-  ) as PiSettingsSnapshot;
-  return applyMergePatch(withPluginSettings, effectiveProjectSettings) as PiSettingsSnapshot;
+  ) as PiSettingsSnapshotWithMcp;
+  return applyMergePatch(withPluginSettings, effectiveProjectSettings) as PiSettingsSnapshotWithMcp;
 }
 
 export function createEmbeddedPiSettingsManager(params: {

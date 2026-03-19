@@ -524,7 +524,7 @@ function validateConfigObjectWithPluginsBase(
       continue;
     }
     if (!knownIds.has(pluginId)) {
-      pushMissingPluginIssue("plugins.allow", pluginId);
+      pushMissingPluginIssue("plugins.allow", pluginId, { warnOnly: true });
     }
   }
 
@@ -534,7 +534,7 @@ function validateConfigObjectWithPluginsBase(
       continue;
     }
     if (!knownIds.has(pluginId)) {
-      pushMissingPluginIssue("plugins.deny", pluginId);
+      pushMissingPluginIssue("plugins.deny", pluginId, { warnOnly: true });
     }
   }
 
@@ -549,7 +549,7 @@ function validateConfigObjectWithPluginsBase(
     memorySlot.trim() &&
     !knownIds.has(memorySlot)
   ) {
-    pushMissingPluginIssue("plugins.slots.memory", memorySlot);
+    pushMissingPluginIssue("plugins.slots.memory", memorySlot, { warnOnly: true });
   }
 
   let selectedMemoryPluginId: string | null = null;

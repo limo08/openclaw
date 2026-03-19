@@ -3,6 +3,7 @@ import { normalizeProviderId } from "../agents/provider-id.js";
 import type { OpenClawConfig } from "../config/config.js";
 import {
   augmentBundledProviderCatalog,
+  buildBundledProviderMissingAuthMessage,
   resolveBundledProviderBuiltInModelSuppression,
 } from "./provider-catalog-metadata.js";
 import {
@@ -357,6 +358,10 @@ export function buildProviderMissingAuthMessageWithPlugin(params: {
   env?: NodeJS.ProcessEnv;
   context: ProviderBuildMissingAuthMessageContext;
 }) {
+  const bundledMessage = buildBundledProviderMissingAuthMessage(params.context);
+  if (bundledMessage) {
+    return bundledMessage;
+  }
   return (
     resolveProviderRuntimePlugin(params)?.buildMissingAuthMessage?.(params.context) ?? undefined
   );

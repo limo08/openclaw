@@ -4,6 +4,7 @@ import {
   buildTelegramStatusReactionVariants,
   extractTelegramAllowedEmojiReactions,
   isTelegramSupportedReactionEmoji,
+  normalizeTelegramReactionEmoji,
   resolveTelegramAllowedEmojiReactions,
   resolveTelegramReactionVariant,
   resolveTelegramStatusReactionEmojis,
@@ -55,6 +56,11 @@ describe("isTelegramSupportedReactionEmoji", () => {
     expect(isTelegramSupportedReactionEmoji("👨‍💻")).toBe(true);
   });
 
+  it("normalizes variation-selector forms before checking support", () => {
+    expect(normalizeTelegramReactionEmoji("❤️")).toBe("❤");
+    expect(isTelegramSupportedReactionEmoji("❤️")).toBe(true);
+  });
+
   it("rejects unsupported emojis", () => {
     expect(isTelegramSupportedReactionEmoji("🫠")).toBe(false);
   });
@@ -80,6 +86,18 @@ describe("extractTelegramAllowedEmojiReactions", () => {
       ],
     });
     expect(result ? Array.from(result).toSorted() : null).toEqual(["👍", "🔥"]);
+  });
+
+  it("normalizes variation selectors when extracting allowed emojis", () => {
+    const result = extractTelegramAllowedEmojiReactions({
+      available_reactions: [
+        { type: "emoji", emoji: "❤️" }, // U+2764 U+FE0F
+        { type: "emoji", emoji: "✅" },
+      ],
+    });
+    // ❤️ should be normalized to ❤ (without variation selector)
+    expect(result?.has("❤")).toBe(true);
+    expect(result?.has("✅")).toBe(true);
   });
 });
 
@@ -163,6 +181,21 @@ describe("resolveTelegramReactionVariant", () => {
       allowedEmojiReactions: new Set(["👍"]),
     });
 
+    expect(result).toBe("👍");
+  });
+
+  it("matches candidates against allowlist with variation-selector normalization", () => {
+    const variantsByEmoji = buildTelegramStatusReactionVariants({
+      ...DEFAULT_EMOJIS,
+      done: "👍",
+    });
+
+    // Allowlist uses variation-selector form ❤️ (U+2764 U+FE0F) but candidate is ❤ (U+2764)
+    const result = resolveTelegramReactionVariant({
+      requestedEmoji: "👍",
+      variantsByRequestedEmoji: variantsByEmoji,
+      allowedEmojiReactions: new Set(["👍"]),
+    });
     expect(result).toBe("👍");
   });
 

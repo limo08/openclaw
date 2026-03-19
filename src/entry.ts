@@ -209,8 +209,14 @@ function runMainOrRootHelp(argv: string[]): void {
   if (tryHandleRootHelpFastPath(argv)) {
     return;
   }
-  import("./cli/run-main.js")
-    .then(({ runCli }) => runCli(argv))
+  import("./cli/route.js")
+    .then(async ({ tryRouteCli }) => {
+      if (await tryRouteCli(argv)) {
+        return;
+      }
+      const { runCli } = await import("./cli/run-main.js");
+      await runCli(argv);
+    })
     .catch((error) => {
       console.error(
         "[openclaw] Failed to start CLI:",

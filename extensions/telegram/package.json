@@ -26,6 +26,9 @@
     },
     "bundle": {
       "stageRuntimeDependencies": true
+    },
+    "startup": {
+      "deferConfiguredChannelFullLoadUntilAfterListen": true
     }
   }
 }

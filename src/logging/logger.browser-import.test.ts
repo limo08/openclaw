@@ -6,6 +6,10 @@ const originalGetBuiltinModule = (
   process as NodeJS.Process & { getBuiltinModule?: (id: string) => unknown }
 ).getBuiltinModule;
 
+function normalizePortablePath(value: string): string {
+  return value.replaceAll("\\", "/");
+}
+
 async function importBrowserSafeLogger(params?: {
   resolvePreferredOpenClawTmpDir?: ReturnType<typeof vi.fn>;
 }): Promise<{
@@ -52,8 +56,8 @@ describe("logging/logger browser-safe import", () => {
     const { module, resolvePreferredOpenClawTmpDir } = await importBrowserSafeLogger();
 
     expect(resolvePreferredOpenClawTmpDir).not.toHaveBeenCalled();
-    expect(module.DEFAULT_LOG_DIR).toBe("/tmp/openclaw");
-    expect(module.DEFAULT_LOG_FILE).toBe("/tmp/openclaw/openclaw.log");
+    expect(normalizePortablePath(module.DEFAULT_LOG_DIR)).toBe("/tmp/openclaw");
+    expect(normalizePortablePath(module.DEFAULT_LOG_FILE)).toBe("/tmp/openclaw/openclaw.log");
   });
 
   it("disables file logging when imported in a browser-like environment", async () => {
@@ -61,7 +65,7 @@ describe("logging/logger browser-safe import", () => {
 
     expect(module.getResolvedLoggerSettings()).toMatchObject({
       level: "silent",
-      file: "/tmp/openclaw/openclaw.log",
+      file: expect.stringMatching(/[/\\]tmp[/\\]openclaw[/\\]openclaw\.log$/),
     });
     expect(module.isFileLogLevelEnabled("info")).toBe(false);
     expect(() => module.getLogger().info("browser-safe")).not.toThrow();
