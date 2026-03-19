@@ -72,16 +72,34 @@ function extractPlatformFromSessionKey(sessionKey: string | undefined | null): s
 }
 
 /**
+ * Extract platform from channel string (provider name).
+ * Channel is the provider name (e.g., "discord", "telegram").
+ * Used as fallback when session key doesn't contain platform (e.g., main-scope DMs).
+ */
+function extractPlatformFromChannel(channel: string | undefined | null): string | null {
+  if (!channel) {
+    return null;
+  }
+  const normalized = channel.toLowerCase().trim();
+  const baseName = normalized.replace(/-dev$/, "");
+  if (VALID_PLATFORMS.has(baseName)) {
+    return normalized;
+  }
+  return null;
+}
+
+/**
  * Add platform prefix to sender ID for memory isolation.
- * Format: platform:senderId (e.g., "discord:409240289384071168")
+ * Format: platform_senderId (e.g., "discord_409240289384071168")
  * Returns undefined if senderId is empty.
  * Returns senderId as-is if already prefixed with a valid platform.
  */
 function addPlatformPrefixToSenderId(params: {
   senderId: string | undefined | null;
   sessionKey: string | undefined | null;
+  channel?: string | null;
 }): string | undefined {
-  const { senderId, sessionKey } = params;
+  const { senderId, sessionKey, channel } = params;
   if (!senderId) {
     return undefined;
   }
@@ -97,8 +115,8 @@ function addPlatformPrefixToSenderId(params: {
     // Prefix exists but not a valid platform - continue to add prefix
     return id ? toFilesystemSafeId(id) : senderId;
   }
-  // Extract platform from session key
-  const platform = extractPlatformFromSessionKey(sessionKey);
+  // Extract platform from session key first, then channel as fallback
+  const platform = extractPlatformFromSessionKey(sessionKey) ?? extractPlatformFromChannel(channel);
   if (platform) {
     // Use underscore separator for filesystem-safe path
     const baseName = platform.replace(/-dev$/, "");
@@ -123,6 +141,7 @@ function resolveMemoryToolContext(options: {
   config?: OpenClawConfig;
   agentSessionKey?: string;
   senderId?: string;
+  channel?: string;
 }) {
   const cfg = options.config;
   if (!cfg) {
@@ -140,9 +159,11 @@ function resolveMemoryToolContext(options: {
   const sessionUserId = extractUserIdFromSessionKey(options.agentSessionKey);
   const rawUserId = sessionUserId ?? options.senderId;
   // Add platform prefix for user isolation across platforms
+  // Use channel as fallback for main-scope DMs where session key lacks platform
   const userId = addPlatformPrefixToSenderId({
     senderId: rawUserId,
     sessionKey: options.agentSessionKey,
+    channel: options.channel,
   });
   return { cfg, agentId, userId };
 }
@@ -172,6 +193,7 @@ function createMemoryTool(params: {
     config?: OpenClawConfig;
     agentSessionKey?: string;
     senderId?: string;
+    channel?: string;
   };
   label: string;
   name: string;
@@ -187,6 +209,7 @@ function createMemoryTool(params: {
     config: params.options.config,
     agentSessionKey: params.options.agentSessionKey,
     senderId: params.options.senderId,
+    channel: params.options.channel,
   });
   if (!ctx) {
     return null;
@@ -204,6 +227,7 @@ export function createMemorySearchTool(options: {
   config?: OpenClawConfig;
   agentSessionKey?: string;
   senderId?: string;
+  channel?: string;
 }): AnyAgentTool | null {
   return createMemoryTool({
     options,
@@ -261,6 +285,7 @@ export function createMemoryGetTool(options: {
   config?: OpenClawConfig;
   agentSessionKey?: string;
   senderId?: string;
+  channel?: string;
 }): AnyAgentTool | null {
   return createMemoryTool({
     options,

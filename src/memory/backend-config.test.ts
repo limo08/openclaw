@@ -186,4 +186,91 @@ describe("resolveMemoryBackendConfig", () => {
     const dirCollection = resolved.qmd?.collections.find((c) => c.name === "memory-dir-main");
     expect(dirCollection?.path).toBe(path.join("/tmp/memory-test", "memory"));
   });
+
+  // Issue 1: QMD backend doesn't honor memory.isolation.enabled
+  describe("isolation.enabled parameter", () => {
+    it("includes user-scoped collections when isolation.enabled is true (default)", () => {
+      const cfg = {
+        agents: { defaults: { workspace: "/tmp/memory-test" } },
+        memory: {
+          backend: "qmd",
+          qmd: {},
+        },
+      } as OpenClawConfig;
+      // Default: isolation.enabled defaults to true
+      const resolved = resolveMemoryBackendConfig({
+        cfg,
+        agentId: "main",
+        userId: "discord-123", // sanitized format (underscores become hyphens)
+        isolation: { enabled: true },
+      });
+      const names = new Set((resolved.qmd?.collections ?? []).map((c) => c.name));
+      // Should include user-scoped collection
+      expect(names.has("memory-discord-123-main-discord-123")).toBe(true);
+      // Should NOT include agent-wide memory-dir
+      expect(names.has("memory-dir-main")).toBe(false);
+    });
+
+    it("includes agent-wide memory directory when isolation.enabled is false", () => {
+      const cfg = {
+        agents: { defaults: { workspace: "/tmp/memory-test" } },
+        memory: {
+          backend: "qmd",
+          qmd: {},
+        },
+      } as OpenClawConfig;
+      const resolved = resolveMemoryBackendConfig({
+        cfg,
+        agentId: "main",
+        userId: "discord-123",
+        isolation: { enabled: false },
+      });
+      const names = new Set((resolved.qmd?.collections ?? []).map((c) => c.name));
+      // Should include agent-wide memory-dir, not user-scoped
+      expect(names.has("memory-dir-main")).toBe(true);
+      // Should NOT include user-scoped collection
+      expect(names.has("memory-discord-123-main-discord-123")).toBe(false);
+    });
+
+    it("ignores userId when isolation.enabled is false even if userId provided", () => {
+      const cfg = {
+        agents: { defaults: { workspace: "/tmp/memory-test" } },
+        memory: {
+          backend: "qmd",
+          qmd: {},
+        },
+      } as OpenClawConfig;
+      // With isolation disabled, userId should be ignored
+      const resolved = resolveMemoryBackendConfig({
+        cfg,
+        agentId: "main",
+        userId: "discord-123",
+        isolation: { enabled: false },
+      });
+      const names = new Set((resolved.qmd?.collections ?? []).map((c) => c.name));
+      // Agent-wide collection should be present
+      expect(names.has("memory-dir-main")).toBe(true);
+      // User collection should NOT be present
+      expect(names.has("memory-discord-123-main-discord-123")).toBe(false);
+    });
+
+    it("defaults isolation.enabled to true when not specified", () => {
+      const cfg = {
+        agents: { defaults: { workspace: "/tmp/memory-test" } },
+        memory: {
+          backend: "qmd",
+          qmd: {},
+        },
+      } as OpenClawConfig;
+      // No isolation param provided - should default to enabled
+      const resolved = resolveMemoryBackendConfig({
+        cfg,
+        agentId: "main",
+        userId: "telegram-456", // sanitized format
+      });
+      const names = new Set((resolved.qmd?.collections ?? []).map((c) => c.name));
+      // Should include user-scoped collection
+      expect(names.has("memory-telegram-456-main-telegram-456")).toBe(true);
+    });
+  });
 });

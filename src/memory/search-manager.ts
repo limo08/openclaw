@@ -28,7 +28,14 @@ export async function getMemorySearchManager(params: {
   userId?: string;
   purpose?: "default" | "status";
 }): Promise<MemorySearchManagerResult> {
-  const resolved = resolveMemoryBackendConfig(params);
+  // Get isolation settings from config - defaults to enabled
+  const isolationEnabled = params.cfg.memory?.isolation?.enabled ?? true;
+  const resolved = resolveMemoryBackendConfig({
+    cfg: params.cfg,
+    agentId: params.agentId,
+    userId: isolationEnabled ? params.userId : undefined,
+    isolation: { enabled: isolationEnabled },
+  });
   if (resolved.backend === "qmd" && resolved.qmd) {
     const statusOnly = params.purpose === "status";
     let cacheKey: string | undefined;

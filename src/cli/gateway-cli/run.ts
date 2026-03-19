@@ -509,7 +509,27 @@ async function runGatewayCommand(opts: GatewayRunOpts) {
       defaultRuntime.exit(1);
       return;
     }
-    defaultRuntime.error(`Gateway failed to start: ${String(err)}`);
+
+    // Handle startup failures (including secret resolution errors) with rollback attempt
+    const errMessage = err instanceof Error ? err.message : String(err);
+    const configBackupSettings = cfg.gateway?.configBackup;
+    const autoRollbackEnabled = configBackupSettings?.autoRollback !== false; // default true
+
+    if (autoRollbackEnabled && preflightSnapshot.valid) {
+      gatewayLog.error(`gateway: startup failed, attempting rollback: ${errMessage}`);
+      const rollbackResult = await attemptConfigRollback(preflightSnapshot.path);
+      if (rollbackResult.restored) {
+        gatewayLog.info(`gateway: rolled back config from ${rollbackResult.backupPath}`);
+        defaultRuntime.error(
+          `Gateway startup failed and config was rolled back.\nOriginal error: ${errMessage}\nRolled back from: ${rollbackResult.backupPath}\nPlease fix the config issue and restart.`,
+        );
+      } else {
+        gatewayLog.warn(`gateway: rollback failed: ${rollbackResult.error}`);
+        defaultRuntime.error(`Gateway failed to start: ${errMessage}`);
+      }
+    } else {
+      defaultRuntime.error(`Gateway failed to start: ${errMessage}`);
+    }
     defaultRuntime.exit(1);
   }
 }

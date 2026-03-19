@@ -329,6 +329,8 @@ export function resolveMemoryBackendConfig(params: {
   cfg: OpenClawConfig;
   agentId: string;
   userId?: string;
+  /** Memory isolation settings - when enabled with userId, user-specific memory dirs are used */
+  isolation?: { enabled: boolean };
 }): ResolvedMemoryBackendConfig {
   const backend = params.cfg.memory?.backend ?? DEFAULT_BACKEND;
   const citations = params.cfg.memory?.citations ?? DEFAULT_CITATIONS;
@@ -340,13 +342,15 @@ export function resolveMemoryBackendConfig(params: {
   const qmdCfg = params.cfg.memory?.qmd;
   const includeDefaultMemory = qmdCfg?.includeDefaultMemory !== false;
   const nameSet = new Set<string>();
+  // Only pass userId to resolveDefaultCollections when isolation is enabled
+  const effectiveUserId = params.isolation?.enabled !== false ? params.userId : undefined;
   const collections = [
     ...resolveDefaultCollections(
       includeDefaultMemory,
       workspaceDir,
       nameSet,
       params.agentId,
-      params.userId,
+      effectiveUserId,
     ),
     ...resolveCustomPaths(qmdCfg?.paths, workspaceDir, nameSet, params.agentId),
   ];

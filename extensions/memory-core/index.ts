@@ -12,11 +12,13 @@ export default definePluginEntry({
           config: ctx.config,
           agentSessionKey: ctx.sessionKey,
           senderId: ctx.requesterSenderId,
+          channel: ctx.messageChannel,
         });
         const memoryGetTool = api.runtime.tools.createMemoryGetTool({
           config: ctx.config,
           agentSessionKey: ctx.sessionKey,
           senderId: ctx.requesterSenderId,
+          channel: ctx.messageChannel,
         });
         if (!memorySearchTool || !memoryGetTool) {
           return null;

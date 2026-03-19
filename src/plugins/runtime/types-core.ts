@@ -70,8 +70,18 @@ export type PluginRuntimeCore = {
     transcribeAudioFile: typeof import("../../media-understanding/transcribe-audio.js").transcribeAudioFile;
   };
   tools: {
-    createMemoryGetTool: typeof import("../../agents/tools/memory-tool.js").createMemoryGetTool;
-    createMemorySearchTool: typeof import("../../agents/tools/memory-tool.js").createMemorySearchTool;
+    createMemoryGetTool: (options: {
+      config?: import("../../config/config.js").OpenClawConfig;
+      agentSessionKey?: string;
+      senderId?: string;
+      channel?: string;
+    }) => import("../../agents/tools/common.js").AnyAgentTool | null;
+    createMemorySearchTool: (options: {
+      config?: import("../../config/config.js").OpenClawConfig;
+      agentSessionKey?: string;
+      senderId?: string;
+      channel?: string;
+    }) => import("../../agents/tools/common.js").AnyAgentTool | null;
     registerMemoryCli: typeof import("../../cli/memory-cli.js").registerMemoryCli;
   };
   events: {
