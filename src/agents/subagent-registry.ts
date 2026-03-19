@@ -5,6 +5,7 @@ import { loadConfig } from "../config/config.js";
 import {
   loadSessionStore,
   resolveAgentIdFromSessionKey,
+  resolveAgentsDirFromSessionStorePath,
   resolveStorePath,
   updateSessionStore,
   type SessionEntry,
@@ -15,6 +16,7 @@ import type { SubagentEndReason } from "../context-engine/types.js";
 import { callGateway } from "../gateway/call.js";
 import { onAgentEvent } from "../infra/agent-events.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
+import { isSubagentSessionKey } from "../routing/session-key.js";
 import { defaultRuntime } from "../runtime.js";
 import { emitSessionLifecycleEvent } from "../sessions/session-lifecycle-events.js";
 import { type DeliveryContext, normalizeDeliveryContext } from "../utils/delivery-context.js";
@@ -321,6 +323,93 @@ function reconcileOrphanedRestoredRuns() {
     }
   }
   return changed;
+}
+
+/**
+ * Reverse orphan reconciliation: scan the session store for entries whose session
+ * key looks like a subagent session but whose run record no longer exists in
+ * runs.json (e.g. because a previous sweep deleted the run record but the
+ * sessions.delete gateway call failed). Clean them up by calling sessions.delete.
+ *
+ * This runs async on startup after run records are restored so it doesn't block init.
+ */
+async function reconcileOrphanedSessionStoreEntries() {
+  try {
+    const cfg = loadConfig();
+    // Build the set of childSessionKeys we still know about from runs.json.
+    const knownSessionKeys = new Set(
+      [...subagentRuns.values()]
+        .map((e) => e.childSessionKey?.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    // Collect all store paths we need to scan.
+    const storePaths = new Set<string>();
+    // Always include the default store path.
+    const defaultStorePath = resolveStorePath(cfg.session?.store, {});
+    storePaths.add(defaultStorePath);
+    // Also include store paths for any known subagent agent IDs.
+    for (const entry of subagentRuns.values()) {
+      if (entry.childSessionKey) {
+        const agentId = resolveAgentIdFromSessionKey(entry.childSessionKey);
+        storePaths.add(resolveStorePath(cfg.session?.store, { agentId }));
+      }
+    }
+    // Scan ALL agent subdirectories to catch orphans whose run records
+    // are already gone (we can't derive agent IDs from missing records).
+    const agentsDir = resolveAgentsDirFromSessionStorePath(defaultStorePath);
+    if (agentsDir) {
+      try {
+        const entries = await fs.readdir(agentsDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            storePaths.add(resolveStorePath(cfg.session?.store, { agentId: entry.name }));
+          }
+        }
+      } catch {
+        // Best-effort: agents dir may not exist yet.
+      }
+    }
+    for (const storePath of storePaths) {
+      let store: Record<string, SessionEntry>;
+      try {
+        store = loadSessionStore(storePath);
+      } catch {
+        continue;
+      }
+      for (const [sessionKey] of Object.entries(store)) {
+        if (!isSubagentSessionKey(sessionKey)) {
+          continue;
+        }
+        if (knownSessionKeys.has(sessionKey.toLowerCase())) {
+          continue;
+        }
+        // This session store entry has a subagent key with no matching run record.
+        // It is a leftover from a previous sweep that failed to clean up.
+        defaultRuntime.log(
+          `[info] reconcileOrphanedSessionStoreEntries: cleaning orphaned session store entry key=${sessionKey}`,
+        );
+        try {
+          await callGateway({
+            method: "sessions.delete",
+            params: {
+              key: sessionKey,
+              deleteTranscript: true,
+              emitLifecycleHooks: false,
+            },
+            timeoutMs: 10_000,
+          });
+        } catch (err) {
+          defaultRuntime.log(
+            `[warn] reconcileOrphanedSessionStoreEntries: sessions.delete failed for key=${sessionKey} error=${String(err)}`,
+          );
+        }
+      }
+    }
+  } catch (err) {
+    defaultRuntime.log(
+      `[warn] reconcileOrphanedSessionStoreEntries: unexpected error — ${String(err)}`,
+    );
+  }
 }
 
 const resumedRuns = new Set<string>();
@@ -848,15 +937,11 @@ async function sweepSubagentRuns() {
       continue;
     }
     clearPendingLifecycleError(runId);
-    void notifyContextEngineSubagentEnded({
-      childSessionKey: entry.childSessionKey,
-      reason: "swept",
-      workspaceDir: entry.workspaceDir,
-    });
-    subagentRuns.delete(runId);
-    mutated = true;
     // Archive/purge is terminal for the run record; remove any retained attachments too.
     await safeRemoveAttachmentsDir(entry);
+    // Delete the session store entry BEFORE removing the run record so that if the
+    // gateway call fails (e.g. transient restart), the run record is preserved and
+    // the sweep will retry on the next interval rather than leaking an orphan entry.
     try {
       await callGateway({
         method: "sessions.delete",
@@ -867,9 +952,22 @@ async function sweepSubagentRuns() {
         },
         timeoutMs: 10_000,
       });
-    } catch {
-      // ignore
+    } catch (err) {
+      defaultRuntime.log(
+        `[warn] sweepSubagentRuns: sessions.delete failed for run=${runId} child=${entry.childSessionKey} — run record retained for next sweep. error=${String(err)}`,
+      );
+      continue;
     }
+    // Notify AFTER successful deletion to avoid duplicate notifications on retry.
+    // If sessions.delete fails above, the run record is kept and the sweep retries
+    // on the next interval — we only want one notification per actual cleanup.
+    void notifyContextEngineSubagentEnded({
+      childSessionKey: entry.childSessionKey,
+      reason: "swept",
+      workspaceDir: entry.workspaceDir,
+    });
+    subagentRuns.delete(runId);
+    mutated = true;
   }
   if (mutated) {
     persistSubagentRuns();
@@ -1702,4 +1800,6 @@ export function getSubagentRunByChildSessionKey(childSessionKey: string): Subage
 
 export function initSubagentRegistry() {
   restoreSubagentRunsOnce();
+  // Async: clean up any session store entries that survived a failed sweep.
+  void reconcileOrphanedSessionStoreEntries();
 }
