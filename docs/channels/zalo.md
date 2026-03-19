@@ -160,7 +160,7 @@ For a quick support snapshot, see [Capabilities](#capabilities). The notes below
 - **Text messages**: Full support with 2000 character chunking.
 - **Plain URLs in text**: Behave like normal text input.
 - **Link previews / rich link cards**: See the Marketplace-bot status in [Capabilities](#capabilities); they did not reliably trigger a reply.
-- **Image messages**: See the Marketplace-bot status in [Capabilities](#capabilities); inbound image handling was unreliable (typing indicator without a final reply).
+- **Image messages**: Inbound image messages are supported.
 - **Stickers**: See the Marketplace-bot status in [Capabilities](#capabilities).
 - **Voice notes / audio files / video / generic file attachments**: See the Marketplace-bot status in [Capabilities](#capabilities).
 - **Unsupported types**: Logged (for example, messages from protected users).
@@ -169,22 +169,22 @@ For a quick support snapshot, see [Capabilities](#capabilities). The notes below
 
 This table summarizes current **Zalo Bot Creator / Marketplace bot** behavior in OpenClaw.
 
-| Feature                     | Status                                  |
-| --------------------------- | --------------------------------------- |
-| Direct messages             | ✅ Supported                            |
-| Groups                      | ❌ Not available for Marketplace bots   |
-| Media (inbound images)      | ⚠️ Limited / verify in your environment |
-| Media (outbound images)     | ⚠️ Not re-tested for Marketplace bots   |
-| Plain URLs in text          | ✅ Supported                            |
-| Link previews               | ⚠️ Unreliable for Marketplace bots      |
-| Reactions                   | ❌ Not supported                        |
-| Stickers                    | ⚠️ No agent reply for Marketplace bots  |
-| Voice notes / audio / video | ⚠️ No agent reply for Marketplace bots  |
-| File attachments            | ⚠️ No agent reply for Marketplace bots  |
-| Threads                     | ❌ Not supported                        |
-| Polls                       | ❌ Not supported                        |
-| Native commands             | ❌ Not supported                        |
-| Streaming                   | ⚠️ Blocked (2000 char limit)            |
+| Feature                     | Status                                 |
+| --------------------------- | -------------------------------------- |
+| Direct messages             | ✅ Supported                           |
+| Groups                      | ❌ Not available for Marketplace bots  |
+| Media (inbound images)      | ✅ Supported                           |
+| Media (outbound images)     | ⚠️ Not re-tested for Marketplace bots  |
+| Plain URLs in text          | ✅ Supported                           |
+| Link previews               | ⚠️ Unreliable for Marketplace bots     |
+| Reactions                   | ❌ Not supported                       |
+| Stickers                    | ⚠️ No agent reply for Marketplace bots |
+| Voice notes / audio / video | ⚠️ No agent reply for Marketplace bots |
+| File attachments            | ⚠️ No agent reply for Marketplace bots |
+| Threads                     | ❌ Not supported                       |
+| Polls                       | ❌ Not supported                       |
+| Native commands             | ❌ Not supported                       |
+| Streaming                   | ⚠️ Blocked (2000 char limit)           |
 
 ## Delivery targets (CLI/cron)
 
@@ -198,6 +198,12 @@ This table summarizes current **Zalo Bot Creator / Marketplace bot** behavior in
 - Check that the token is valid: `openclaw channels status --probe`
 - Verify the sender is approved (pairing or allowFrom)
 - Check gateway logs: `openclaw logs --follow`
+
+**Image messages are not processed:**
+
+- Confirm the bot is receiving an inbound image event
+- Check gateway logs for the raw inbound payload and verify a usable image URL is present
+- Verify the image size stays within `channels.zalo.mediaMaxMb`
 
 **Webhook not receiving events:**
 
