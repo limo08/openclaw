@@ -1,8 +1,10 @@
 import {
+  normalizeGeminiBaseUrl,
+} from "openclaw/plugin-sdk/google";
+import {
   assertOkOrThrowHttpError,
   describeImageWithModel,
   describeImagesWithModel,
-  normalizeBaseUrl,
   postJsonRequest,
   type AudioTranscriptionRequest,
   type AudioTranscriptionResult,
@@ -37,7 +39,7 @@ async function generateGeminiInlineDataText(params: {
   missingTextError: string;
 }): Promise<{ text: string; model: string }> {
   const fetchFn = params.fetchFn ?? fetch;
-  const baseUrl = normalizeBaseUrl(params.baseUrl, params.defaultBaseUrl);
+  const baseUrl = normalizeGeminiBaseUrl(params.baseUrl, params.defaultBaseUrl);
   const allowPrivate = Boolean(params.baseUrl?.trim());
   const model = (() => {
     const trimmed = params.model?.trim();
