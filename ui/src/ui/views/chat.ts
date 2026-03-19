@@ -255,7 +255,10 @@ function renderContextNotice(
   session: GatewaySessionRow | undefined,
   defaultContextTokens: number | null,
 ) {
-  const used = session?.inputTokens ?? 0;
+  // totalTokens is a prompt/context snapshot (input + cacheRead + cacheWrite),
+  // which represents actual context occupancy.  Fall back to inputTokens when
+  // totalTokens is unavailable (stale or missing).
+  const used = session?.totalTokens ?? session?.inputTokens ?? 0;
   const limit = session?.contextTokens ?? defaultContextTokens ?? 0;
   if (!used || !limit) {
     return nothing;
