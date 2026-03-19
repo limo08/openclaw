@@ -1,5 +1,4 @@
-import { resolveGlobalMap } from "openclaw/plugin-sdk/text-runtime";
-
+import fs from "node:fs";
 /**
  * In-memory cache of Slack threads the bot has participated in.
  * Used to auto-respond in threads without requiring @mention after the first reply.
@@ -9,10 +8,9 @@ import { resolveGlobalMap } from "openclaw/plugin-sdk/text-runtime";
  * restarts.  Writes are debounced (at most once per PERSIST_DEBOUNCE_MS) and
  * reads happen once on first access.
  */
-
-import fs from "node:fs";
 import path from "node:path";
-import { resolveStateDir } from "../config/paths.js";
+import { STATE_DIR } from "openclaw/plugin-sdk/state-paths";
+import { resolveGlobalMap } from "openclaw/plugin-sdk/text-runtime";
 
 const TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const MAX_ENTRIES = 5000;
@@ -35,7 +33,7 @@ function persistPath(): string {
   if (persistPathOverride) {
     return persistPathOverride;
   }
-  return path.join(resolveStateDir(), PERSIST_FILENAME);
+  return path.join(STATE_DIR, PERSIST_FILENAME);
 }
 
 // -- Persistence: load --
