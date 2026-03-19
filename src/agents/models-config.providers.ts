@@ -1,4 +1,9 @@
 import {
+  DEFAULT_COPILOT_API_BASE_URL,
+  SDK_MANAGED_TOKEN,
+  resolveCopilotApiToken,
+} from "../../extensions/github-copilot/token.js";
+import {
   QIANFAN_BASE_URL,
   QIANFAN_DEFAULT_MODEL_ID,
 } from "../../extensions/qianfan/provider-catalog.js";
@@ -793,6 +798,15 @@ export async function resolveImplicitProviders(
   mergeImplicitProviderSet(providers, await resolvePluginImplicitProviders(context, "paired"));
   mergeImplicitProviderSet(providers, await resolvePluginImplicitProviders(context, "late"));
 
+  const implicitCopilot = await resolveImplicitCopilotProvider({
+    agentDir: params.agentDir,
+    env,
+  });
+  if (implicitCopilot) {
+    const existing = providers["github-copilot"];
+    providers["github-copilot"] = existing ? { ...implicitCopilot, ...existing } : implicitCopilot;
+  }
+
   const implicitBedrock = await resolveImplicitBedrockProvider({
     agentDir: params.agentDir,
     config: params.config,
@@ -813,6 +827,62 @@ export async function resolveImplicitProviders(
   }
 
   return providers;
+}
+
+export async function resolveImplicitCopilotProvider(params: {
+  agentDir: string;
+  env?: NodeJS.ProcessEnv;
+}): Promise<ProviderConfig | null> {
+  const env = params.env ?? process.env;
+  const authStore = ensureAuthProfileStore(params.agentDir, {
+    allowKeychainPrompt: false,
+  });
+  const hasProfile = listProfilesForProvider(authStore, "github-copilot").length > 0;
+  const envToken = env.COPILOT_GITHUB_TOKEN ?? env.GH_TOKEN ?? env.GITHUB_TOKEN;
+  const githubToken = (envToken ?? "").trim();
+
+  if (!hasProfile && !githubToken) {
+    return null;
+  }
+
+  // ── Check if profile is SDK-managed ───────────────────────────────────
+  let selectedGithubToken = githubToken;
+  if (!selectedGithubToken && hasProfile) {
+    const profileId = listProfilesForProvider(authStore, "github-copilot")[0];
+    const profile = profileId ? authStore.profiles[profileId] : undefined;
+    if (profile && profile.type === "token") {
+      selectedGithubToken = profile.token?.trim() ?? "";
+      if (!selectedGithubToken) {
+        const tokenRef = coerceSecretRef(profile.tokenRef);
+        if (tokenRef?.source === "env" && tokenRef.id.trim()) {
+          selectedGithubToken = (env[tokenRef.id] ?? process.env[tokenRef.id] ?? "").trim();
+        }
+      }
+    }
+  }
+
+  // SDK-managed tokens cannot be used for REST token exchange.
+  if (selectedGithubToken === SDK_MANAGED_TOKEN) {
+    return null;
+  }
+
+  let baseUrl = DEFAULT_COPILOT_API_BASE_URL;
+  if (selectedGithubToken) {
+    try {
+      const token = await resolveCopilotApiToken({
+        githubToken: selectedGithubToken,
+        env,
+      });
+      baseUrl = token.baseUrl;
+    } catch {
+      baseUrl = DEFAULT_COPILOT_API_BASE_URL;
+    }
+  }
+
+  return {
+    baseUrl,
+    models: [],
+  } satisfies ProviderConfig;
 }
 
 export async function resolveImplicitBedrockProvider(params: {

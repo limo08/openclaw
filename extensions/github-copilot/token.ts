@@ -2,6 +2,14 @@ import path from "node:path";
 import { loadJsonFile, saveJsonFile } from "openclaw/plugin-sdk/json-store";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 
+/**
+ * Marker token stored in auth profiles when the Copilot SDK manages
+ * authentication (e.g. via `gh` CLI or environment variables). The
+ * embedded runner detects this and delegates token resolution to the SDK
+ * instead of exchanging a raw GitHub token.
+ */
+export const SDK_MANAGED_TOKEN = "sdk-managed";
+
 const COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token";
 
 export type CachedCopilotToken = {
@@ -91,6 +99,16 @@ export async function resolveCopilotApiToken(params: {
   source: string;
   baseUrl: string;
 }> {
+  // SDK-managed profiles cannot be exchanged for API tokens — they must be
+  // routed through the Copilot SDK runner (copilot-cli backend) instead.
+  if (params.githubToken === SDK_MANAGED_TOKEN) {
+    throw new Error(
+      "SDK-managed auth profile cannot be exchanged for a Copilot API token. " +
+        "Use the copilot-cli backend or re-authenticate with `openclaw login github-copilot` " +
+        "to obtain a device-flow token.",
+    );
+  }
+
   const env = params.env ?? process.env;
   const cachePath = params.cachePath?.trim() || resolveCopilotTokenCachePath(env);
   const loadJsonFileFn = params.loadJsonFileImpl ?? loadJsonFile;
