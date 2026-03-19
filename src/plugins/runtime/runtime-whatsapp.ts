@@ -2,6 +2,7 @@ import {
   getActiveWebListener,
   getWebAuthAgeMs,
   logWebSelfId,
+  logoutWeb,
   monitorWebChannel as monitorWebChannelImpl,
   readWebSelfId,
   webAuthExists,

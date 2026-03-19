@@ -203,10 +203,12 @@ describe("loadEnabledBundleMcpConfig", () => {
       expect(normalizePath(await fs.realpath(inlineProbe.command ?? ""))).toBe(
         normalizePath(await fs.realpath(path.join(resolvedPluginRoot, "bin", "server.sh"))),
       );
-      expect(await Promise.all(inlineProbe.args?.map((entry) => fs.realpath(entry)) ?? [])).toEqual([
-        await fs.realpath(path.join(resolvedPluginRoot, "servers", "probe.mjs")),
-        await fs.realpath(path.join(resolvedPluginRoot, "local-probe.mjs")),
-      ]);
+      expect(await Promise.all(inlineProbe.args?.map((entry) => fs.realpath(entry)) ?? [])).toEqual(
+        [
+          await fs.realpath(path.join(resolvedPluginRoot, "servers", "probe.mjs")),
+          await fs.realpath(path.join(resolvedPluginRoot, "local-probe.mjs")),
+        ],
+      );
       expect(normalizePath(await fs.realpath(inlineProbe.cwd ?? ""))).toBe(
         normalizePath(resolvedPluginRoot),
       );

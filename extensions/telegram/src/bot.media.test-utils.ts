@@ -1,6 +1,5 @@
 import * as ssrf from "openclaw/plugin-sdk/infra-runtime";
 import { afterEach, beforeAll, beforeEach, expect, vi, type Mock } from "vitest";
-import type { TelegramBotDeps } from "./bot-deps.js";
 
 type StickerSpy = Mock<(...args: unknown[]) => unknown>;
 
@@ -103,10 +102,6 @@ export function watchTelegramFetch(): FetchMockHandle {
   return createFetchMockHandle();
 }
 
-export function watchTelegramFetch(): ReturnType<typeof vi.spyOn> {
-  return vi.spyOn(globalThis, "fetch");
-}
-
 beforeEach(() => {
   vi.useRealTimers();
   lookupMock.mockResolvedValue([{ address: "93.184.216.34", family: 4 }]);
@@ -129,14 +124,14 @@ beforeAll(async () => {
   resetFetchRemoteMediaMockRef = harness.resetFetchRemoteMediaMock;
   const botModule = await import("./bot.js");
   botModule.setTelegramBotRuntimeForTest(
-    harness.telegramBotRuntimeForTest as unknown as NonNullable<
-      Parameters<typeof botModule.setTelegramBotRuntimeForTest>[0]
-    >,
+    harness.telegramBotRuntimeForTest as unknown as Parameters<
+      typeof botModule.setTelegramBotRuntimeForTest
+    >[0],
   );
   createTelegramBotRef = (opts) =>
     botModule.createTelegramBot({
       ...opts,
-      telegramDeps: harness.telegramBotDepsForTest as unknown as TelegramBotDeps,
+      telegramDeps: harness.telegramBotDepsForTest,
     });
   const replyModule = await import("openclaw/plugin-sdk/reply-runtime");
   replySpyRef = (replyModule as unknown as { __replySpy: ReturnType<typeof vi.fn> }).__replySpy;

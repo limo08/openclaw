@@ -4,12 +4,7 @@ import {
   expectCodexBuiltInSuppression,
   expectCodexMissingAuthHint,
 } from "../provider-runtime.test-support.js";
-import {
-  requireProviderContractProvider,
-  resolveProviderContractPluginIdsForProvider,
-  resolveProviderContractProvidersForPluginIds,
-  uniqueProviderContractProviders,
-} from "./registry.js";
+import { requireProviderContractProvider } from "./registry.js";
 
 type ResolvePluginProviders = typeof import("../providers.js").resolvePluginProviders;
 type ResolveOwningPluginIdsForProvider =
@@ -80,12 +75,7 @@ describe("provider catalog contract", () => {
   it("keeps codex-only missing-auth hints wired through the provider runtime", () => {
     const openaiProvider = requireProviderContractProvider("openai");
     expectCodexMissingAuthHint(
-      ({ context }) =>
-        openaiProvider.buildMissingAuthMessage?.({
-          ...context,
-          listProfileIds: (providerId) =>
-            typeof providerId === "string" ? context.listProfileIds(providerId) : [],
-        }) ?? undefined,
+      (params) => openaiProvider.buildMissingAuthMessage?.(params.context) ?? undefined,
     );
   });
 
