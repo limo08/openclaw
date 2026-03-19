@@ -292,6 +292,7 @@ export function convertMessagesToInputItems(
   modelOverride?: ReplayModelInfo,
 ): InputItem[] {
   const items: InputItem[] = [];
+  const skippedCallIds = new Map<string, boolean>(); // callId -> whether paired function_call existed
 
   for (const msg of messages) {
     const m = msg as AnyMessage & {
@@ -368,10 +369,18 @@ export function convertMessagesToInputItems(
           pushAssistantText();
           const callIdRaw = toNonEmptyString(block.id);
           const toolName = toNonEmptyString(block.name);
+          // Skip tool calls without valid name - this can happen when switching models
+          // and the context contains function_response from a different model format
           if (!callIdRaw || !toolName) {
+            // Track skipped callId so function_call_output can skip it too
+            if (callIdRaw) {
+              const [skippedId] = callIdRaw.split("|", 2);
+              skippedCallIds.set(skippedId, false); // false = no function_call
+            }
             continue;
           }
           const [callId, itemId] = callIdRaw.split("|", 2);
+          skippedCallIds.set(callId, true); // true = has function_call
           items.push({
             type: "function_call",
             ...(itemId ? { id: itemId } : {}),
@@ -413,6 +422,13 @@ export function convertMessagesToInputItems(
     const parts = Array.isArray(m.content) ? contentToOpenAIParts(m.content, modelOverride) : [];
     const textOutput = contentToText(m.content);
     const imageParts = parts.filter((part) => part.type === "input_image");
+    // Skip if callId was skipped in function_call (model switch scenario)
+    // and remove it so later valid calls with same ID are not blocked
+    // Skip only if no valid function_call existed for this callId
+    if (skippedCallIds.get(callId) === false) {
+      skippedCallIds.delete(callId);
+      continue;
+    }
     items.push({
       type: "function_call_output",
       call_id: callId,
