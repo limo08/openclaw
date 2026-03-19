@@ -6,7 +6,6 @@ import type {
   SetSessionModeRequest,
 } from "@agentclientprotocol/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { listThinkingLevels } from "../auto-reply/thinking.js";
 import type { GatewayClient } from "../gateway/client.js";
 import type { EventFrame } from "../gateway/protocol/index.js";
 import { createInMemorySessionStore } from "./session.js";

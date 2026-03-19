@@ -143,10 +143,6 @@ type ChannelActionsContractCase = {
   beforeTest?: () => void;
 };
 
-function hasActionsDiscoverySurface(actions: ChannelPlugin["actions"] | undefined): boolean {
-  return typeof actions?.describeMessageTool === "function";
-}
-
 export function installChannelActionsContractSuite(params: {
   plugin: Pick<ChannelPlugin, "id" | "actions">;
   cases: readonly ChannelActionsContractCase[];
