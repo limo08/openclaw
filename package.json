@@ -758,6 +758,9 @@
   "packageManager": "pnpm@10.23.0",
   "pnpm": {
     "minimumReleaseAge": 2880,
+    "patchedDependencies": {
+      "@mariozechner/pi-ai@0.55.0": "patches/@mariozechner__pi-ai@0.55.0.patch"
+    },
     "overrides": {
       "@mariozechner/pi-coding-agent>@mariozechner/pi-agent-core": "0.58.0",
       "@mariozechner/pi-agent-core>@mariozechner/pi-ai": "0.60.0",
