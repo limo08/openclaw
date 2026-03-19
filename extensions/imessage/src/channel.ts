@@ -7,18 +7,7 @@ import { buildOutboundBaseSessionKey } from "openclaw/plugin-sdk/core";
 import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 import { type RoutePeer } from "openclaw/plugin-sdk/routing";
 import { buildPassiveProbedChannelStatusSummary } from "../../shared/channel-status-summary.js";
-import {
-  collectStatusIssuesFromLastError,
-  DEFAULT_ACCOUNT_ID,
-  formatTrimmedAllowFromEntries,
-  normalizeIMessageMessagingTarget,
-  type ChannelPlugin,
-} from "../runtime-api.js";
 import { resolveIMessageAccount, type ResolvedIMessageAccount } from "./accounts.js";
-import {
-  resolveIMessageGroupRequireMention,
-  resolveIMessageGroupToolPolicy,
-} from "./group-policy.js";
 import { getIMessageRuntime } from "./runtime.js";
 import { imessageSetupAdapter } from "./setup-core.js";
 import {
