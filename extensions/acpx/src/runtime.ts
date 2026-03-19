@@ -92,6 +92,25 @@ function formatAcpxExitMessage(params: {
   return stderr || `acpx exited with code ${params.exitCode ?? "unknown"}`;
 }
 
+function resolveSilentAcpxExitErrorCode(exitCode: number | null | undefined): AcpRuntimeErrorCode {
+  if (exitCode === ACPX_EXIT_CODE_PERMISSION_DENIED) {
+    return "ACP_TURN_FAILED";
+  }
+  return "ACP_BACKEND_UNAVAILABLE";
+}
+
+function resolveSilentAcpxControlExitErrorCode(params: {
+  exitCode: number | null | undefined;
+  fallbackCode: AcpRuntimeErrorCode;
+}): AcpRuntimeErrorCode {
+  if (params.exitCode === ACPX_EXIT_CODE_PERMISSION_DENIED) {
+    return params.fallbackCode;
+  }
+  return params.fallbackCode === "ACP_TURN_FAILED"
+    ? "ACP_BACKEND_UNAVAILABLE"
+    : params.fallbackCode;
+}
+
 function summarizeLogText(text: string, maxChars = 240): string {
   const normalized = text.trim().replace(/\s+/g, " ");
   if (!normalized) {
@@ -444,6 +463,14 @@ export class AcpxRuntime implements AcpRuntime {
           fallbackCode: "ACP_SESSION_INIT_FAILED",
         });
       } catch (error) {
+        const isSilentInitExit =
+          error instanceof AcpRuntimeError &&
+          error.code === "ACP_SESSION_INIT_FAILED" &&
+          /acpx exited with code\s+[1-9]\d*/i.test(error.message);
+        if (isSilentInitExit) {
+          throw error;
+        }
+
         const recovered = await this.recoverEnsureFailure({
           sessionName,
           agent,
@@ -637,6 +664,7 @@ export class AcpxRuntime implements AcpRuntime {
       if ((exit.code ?? 0) !== 0 && !sawError) {
         yield {
           type: "error",
+          code: resolveSilentAcpxExitErrorCode(exit.code),
           message: formatAcpxExitMessage({
             stderr,
             exitCode: exit.code,
@@ -998,7 +1026,10 @@ export class AcpxRuntime implements AcpRuntime {
 
     if ((result.code ?? 0) !== 0) {
       throw new AcpRuntimeError(
-        params.fallbackCode,
+        resolveSilentAcpxControlExitErrorCode({
+          exitCode: result.code,
+          fallbackCode: params.fallbackCode,
+        }),
         formatAcpxExitMessage({
           stderr: result.stderr,
           exitCode: result.code,
