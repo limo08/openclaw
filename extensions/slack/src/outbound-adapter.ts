@@ -21,6 +21,151 @@ import { sendMessageSlack, type SlackSendIdentity } from "./send.js";
 
 const SLACK_MAX_BLOCKS = 50;
 
+// ---------------------------------------------------------------------------
+// Adaptive Card rendering: inline card extraction + Slack Block Kit conversion.
+// Mirrors src/cards/parse.ts + src/cards/strategies/slack.ts but kept inline
+// to avoid cross-workspace imports (extensions cannot import from src/ directly).
+// ---------------------------------------------------------------------------
+
+const AC_CARD_RE = /<!--adaptive-card-->([\s\S]*?)<!--\/adaptive-card-->/;
+const AC_MARKERS_RE =
+  /<!--adaptive-card-->[\s\S]*?<!--\/adaptive-card-->|<!--adaptive-card-data-->[\s\S]*?<!--\/adaptive-card-data-->/g;
+
+/** Strip all adaptive card markers, returning only the fallback text. */
+function stripCardMarkers(text: string): string {
+  return text.replace(AC_MARKERS_RE, "").trim();
+}
+
+interface AcParsed {
+  card: { type: "AdaptiveCard"; body: unknown[]; actions?: unknown[] };
+  fallbackText: string;
+}
+
+function parseAdaptiveCardMarkers(text: string): AcParsed | null {
+  const m = AC_CARD_RE.exec(text);
+  if (!m) {
+    return null;
+  }
+  try {
+    const card = JSON.parse(m[1].trim());
+    if (card?.type !== "AdaptiveCard") {
+      return null;
+    }
+    const fallbackText = text.slice(0, m.index).trim();
+    return { card, fallbackText };
+  } catch {
+    return null;
+  }
+}
+
+type AcElement = Record<string, unknown>;
+
+function acStr(val: unknown, fallback = ""): string {
+  if (typeof val === "string") return val;
+  if (val == null) return fallback;
+  return JSON.stringify(val);
+}
+
+/** Slack limits section text to 3000 chars. */
+function truncateMrkdwn(text: string, limit = 3000): string {
+  return text.length > limit ? text.slice(0, limit - 3) + "..." : text;
+}
+
+function renderAcTextBlock(el: AcElement): unknown {
+  const text = acStr(el.text);
+  const weight = el.weight as string | undefined;
+  const formatted = weight === "Bolder" ? `*${text}*` : text;
+  return { type: "section", text: { type: "mrkdwn", text: truncateMrkdwn(formatted) } };
+}
+
+function renderAcFactSet(el: AcElement): unknown[] {
+  const facts = el.facts as Array<{ title?: string; value?: string }> | undefined;
+  if (!facts?.length) return [];
+  const fields = facts.map((f) => ({ type: "mrkdwn", text: `*${f.title ?? ""}*\n${f.value ?? ""}` }));
+  // Slack limits section blocks to 10 fields; split into chunks if needed
+  const blocks: unknown[] = [];
+  for (let i = 0; i < fields.length; i += 10) {
+    blocks.push({ type: "section", fields: fields.slice(i, i + 10) });
+  }
+  return blocks;
+}
+
+function renderAcImage(el: AcElement): unknown | null {
+  const url = acStr(el.url);
+  const alt = acStr(el.altText) || acStr(el.alt) || "image";
+  if (!url) return null;
+  return { type: "image", image_url: url, alt_text: alt };
+}
+
+function renderAcElement(el: AcElement): unknown[] {
+  switch (el.type) {
+    case "TextBlock":
+      return [renderAcTextBlock(el)];
+    case "FactSet":
+      return renderAcFactSet(el);
+    case "Image": {
+      const block = renderAcImage(el);
+      return block ? [block] : [];
+    }
+    case "ColumnSet": {
+      const columns = el.columns as Array<{ items?: AcElement[] }> | undefined;
+      if (!columns?.length) return [];
+      return columns.flatMap((col) => (col.items ?? []).flatMap(renderAcElement));
+    }
+    case "Container": {
+      const items = el.items as AcElement[] | undefined;
+      return (items ?? []).flatMap(renderAcElement);
+    }
+    default:
+      return [];
+  }
+}
+
+function renderAcActions(actions: unknown[]): unknown[] {
+  type SlackButton = {
+    type: "button";
+    text: { type: "plain_text"; text: string };
+    url?: string;
+    action_id?: string;
+    value?: string;
+  };
+  const buttons: SlackButton[] = [];
+  for (const raw of actions) {
+    const action = raw as AcElement;
+    const label = acStr(action.title);
+    if (!label) continue;
+    if (action.type === "Action.OpenUrl") {
+      const url = acStr(action.url);
+      if (!url) continue; // skip: Slack rejects link buttons with an empty URL
+      buttons.push({ type: "button", text: { type: "plain_text", text: label }, url });
+    } else if (action.type === "Action.Submit") {
+      const actionId = typeof action.id === "string" ? action.id : `ac_submit_${buttons.length}`;
+      buttons.push({
+        type: "button",
+        text: { type: "plain_text", text: label },
+        action_id: actionId,
+        value: action.data != null ? JSON.stringify(action.data) : undefined,
+      });
+    }
+  }
+  return buttons.length > 0 ? [{ type: "actions", elements: buttons }] : [];
+}
+
+function renderSlackCard(parsed: AcParsed): { blocks: unknown[]; fallback: string } {
+  const blocks: unknown[] = [];
+  for (const el of parsed.card.body) {
+    const rendered = renderAcElement(el as AcElement);
+    if (rendered.length > 0) {
+      if (blocks.length > 0) blocks.push({ type: "divider" });
+      blocks.push(...rendered);
+    }
+  }
+  if (parsed.card.actions?.length) {
+    blocks.push(...renderAcActions(parsed.card.actions));
+  }
+  return { blocks, fallback: parsed.fallbackText };
+}
+
 function resolveRenderedInteractiveBlocks(
   interactive?: InteractiveReply,
 ): SlackBlock[] | undefined {
@@ -205,8 +350,35 @@ export const slackOutbound: ChannelOutboundAdapter = {
   },
   ...createAttachedChannelResultAdapter({
     channel: "slack",
-    sendText: async ({ cfg, to, text, accountId, deps, replyToId, threadId, identity }) =>
-      await sendSlackOutboundMessage({
+    sendText: async ({ cfg, to, text, accountId, deps, replyToId, threadId, identity }) => {
+      // Adaptive card rendering: convert card markers to Slack Block Kit
+      const acParsed = parseAdaptiveCardMarkers(text);
+      if (acParsed) {
+        let rendered: ReturnType<typeof renderSlackCard> | null = null;
+        try {
+          rendered = renderSlackCard(acParsed);
+        } catch {
+          // strategy error -- fall through to fallback text
+        }
+        if (rendered && rendered.blocks.length > 0) {
+          const send =
+            resolveOutboundSendDep<typeof sendMessageSlack>(deps, "slack") ?? sendMessageSlack;
+          const threadTs = replyToId ?? (threadId != null ? String(threadId) : undefined);
+          const slackIdentity = resolveSlackSendIdentity(identity);
+          return await send(to, rendered.fallback, {
+            cfg,
+            threadTs,
+            accountId: accountId ?? undefined,
+            blocks: rendered.blocks as NonNullable<Parameters<typeof sendMessageSlack>[2]>["blocks"],
+            ...(slackIdentity ? { identity: slackIdentity } : {}),
+          });
+        }
+        // Card markers present but no blocks rendered (unsupported elements).
+        // Use fallback text to avoid leaking raw markers to the user.
+        text = acParsed.fallbackText || stripCardMarkers(text);
+      }
+
+      return await sendSlackOutboundMessage({
         cfg,
         to,
         text,
@@ -215,7 +387,8 @@ export const slackOutbound: ChannelOutboundAdapter = {
         replyToId,
         threadId,
         identity,
-      }),
+      });
+    },
     sendMedia: async ({
       cfg,
       to,
