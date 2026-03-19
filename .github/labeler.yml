@@ -234,6 +234,10 @@
   - changed-files:
       - any-glob-to-any-file:
           - "extensions/byteplus/**"
+"extensions: clawapi":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/clawapi/**"
 "extensions: anthropic":
   - changed-files:
       - any-glob-to-any-file:
