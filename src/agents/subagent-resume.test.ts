@@ -221,34 +221,34 @@ describe("readTranscriptSessionId", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns the session id from a valid transcript header", () => {
+  it("returns the session id from a valid transcript header", async () => {
     const sessionId = "aaaa-bbbb-cccc-dddd";
     const transcriptPath = path.join(tmpDir, `${sessionId}.jsonl`);
     fs.writeFileSync(transcriptPath, `${sessionHeaderLine(sessionId)}\n`);
 
-    expect(readTranscriptSessionId(transcriptPath)).toBe(sessionId);
+    expect(await readTranscriptSessionId(transcriptPath)).toBe(sessionId);
   });
 
-  it("returns null when the file does not exist", () => {
-    expect(readTranscriptSessionId(path.join(tmpDir, "missing.jsonl"))).toBeNull();
+  it("returns null when the file does not exist", async () => {
+    expect(await readTranscriptSessionId(path.join(tmpDir, "missing.jsonl"))).toBeNull();
   });
 
-  it("returns null when the first line is not a session header", () => {
+  it("returns null when the first line is not a session header", async () => {
     const transcriptPath = path.join(tmpDir, "bad.jsonl");
     fs.writeFileSync(transcriptPath, `${assistantMessageLine()}\n`);
-    expect(readTranscriptSessionId(transcriptPath)).toBeNull();
+    expect(await readTranscriptSessionId(transcriptPath)).toBeNull();
   });
 
-  it("returns null when the file is empty", () => {
+  it("returns null when the file is empty", async () => {
     const transcriptPath = path.join(tmpDir, "empty.jsonl");
     fs.writeFileSync(transcriptPath, "");
-    expect(readTranscriptSessionId(transcriptPath)).toBeNull();
+    expect(await readTranscriptSessionId(transcriptPath)).toBeNull();
   });
 
-  it("returns null when the first line is malformed JSON", () => {
+  it("returns null when the first line is malformed JSON", async () => {
     const transcriptPath = path.join(tmpDir, "malformed.jsonl");
     fs.writeFileSync(transcriptPath, "not-json\n");
-    expect(readTranscriptSessionId(transcriptPath)).toBeNull();
+    expect(await readTranscriptSessionId(transcriptPath)).toBeNull();
   });
 });
 

@@ -805,6 +805,11 @@ async function restoreSubagentRunsOnce(): Promise<void> {
     if (restoredCount === 0) {
       return;
     }
+    // Snapshot the set of restored run IDs BEFORE awaiting async rehydration.
+    // Any run registered while we await (e.g. a new sessions_spawn call) must
+    // not be treated as a restored run and passed through resumeSubagentRun,
+    // which would trigger duplicate execution.
+    const restoredRunIds = new Set(subagentRuns.keys());
     // Ordering: rehydrateSessionStoreEntries MUST run before
     // reconcileOrphanedRestoredRuns.  The rehydration step injects synthetic
     // session-store entries for runs whose store write fell inside the ~400 ms
@@ -821,13 +826,16 @@ async function restoreSubagentRunsOnce(): Promise<void> {
     if (subagentRuns.size === 0) {
       return;
     }
-    // Resume pending work.
+    // Resume pending work — iterate only the pre-await snapshot to avoid
+    // resuming runs registered during the rehydration await window.
     ensureListener();
     if ([...subagentRuns.values()].some((entry) => entry.archiveAtMs)) {
       startSweeper();
     }
-    for (const runId of subagentRuns.keys()) {
-      resumeSubagentRun(runId);
+    for (const runId of restoredRunIds) {
+      if (subagentRuns.has(runId)) {
+        resumeSubagentRun(runId);
+      }
     }
 
     // Schedule orphan recovery for subagent sessions that were aborted

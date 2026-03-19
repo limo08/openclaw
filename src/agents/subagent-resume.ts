@@ -84,9 +84,9 @@ export type SubagentRunResumability =
  * embedded in the `{type:'session', id:'<uuid>'}` header.  Returns `null` on
  * any error or when the header is absent / malformed.
  */
-export function readTranscriptSessionId(transcriptPath: string): string | null {
+export async function readTranscriptSessionId(transcriptPath: string): Promise<string | null> {
   try {
-    const content = fs.readFileSync(transcriptPath, "utf-8");
+    const content = await fs.promises.readFile(transcriptPath, "utf-8");
     const firstLine = content.split("\n")[0]?.trim();
     if (!firstLine) {
       return null;
@@ -474,7 +474,7 @@ export async function rehydrateSessionStoreEntries(
         continue;
       }
 
-      const sessionId = readTranscriptSessionId(transcriptPath);
+      const sessionId = await readTranscriptSessionId(transcriptPath);
       if (!sessionId) {
         log.debug("rehydrate: transcript has no session header", { childSessionKey });
         continue;
