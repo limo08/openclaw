@@ -37,14 +37,17 @@ import {
   isValidOpenAIModel,
   isValidOpenAIVoice,
   isValidVoiceId,
-  OPENAI_TTS_MODELS,
-  OPENAI_TTS_VOICES,
+  OPENAI_TTS_MODELS as OPENAI_TTS_MODELS_CORE,
+  OPENAI_TTS_VOICES as OPENAI_TTS_VOICES_CORE,
   resolveOpenAITtsInstructions,
   parseTtsDirectives,
   scheduleCleanup,
   summarizeText,
 } from "./tts-core.js";
-export { OPENAI_TTS_MODELS, OPENAI_TTS_VOICES } from "./tts-core.js";
+
+// Re-export as concrete values (avoid any bundler/test runner edge cases with re-export bindings).
+export const OPENAI_TTS_MODELS = OPENAI_TTS_MODELS_CORE;
+export const OPENAI_TTS_VOICES = OPENAI_TTS_VOICES_CORE;
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_TTS_MAX_LENGTH = 1500;
@@ -58,6 +61,8 @@ const DEFAULT_OPENAI_MODEL = "gpt-4o-mini-tts";
 const DEFAULT_OPENAI_VOICE = "alloy";
 const DEFAULT_EDGE_VOICE = "en-US-MichelleNeural";
 const DEFAULT_EDGE_LANG = "en-US";
+const DEFAULT_EDGE_CHINESE_VOICE = "zh-CN-XiaoxiaoNeural";
+const DEFAULT_EDGE_CHINESE_LANG = "zh-CN";
 const DEFAULT_EDGE_OUTPUT_FORMAT = "audio-24khz-48kbitrate-mono-mp3";
 
 const DEFAULT_ELEVENLABS_VOICE_SETTINGS = {
@@ -514,6 +519,28 @@ function resolveChannelId(channel: string | undefined): ChannelId | null {
 
 function resolveEdgeOutputFormat(config: ResolvedTtsConfig): string {
   return config.edge.outputFormat;
+}
+
+function containsChineseCharacters(text: string): boolean {
+  return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u.test(text);
+}
+
+function usesChineseEdgeVoice(config: ResolvedTtsConfig["edge"]): boolean {
+  return config.lang.toLowerCase().startsWith("zh") || config.voice.toLowerCase().startsWith("zh-");
+}
+
+function resolveEdgeVoiceConfigForText(
+  text: string,
+  config: ResolvedTtsConfig["edge"],
+): ResolvedTtsConfig["edge"] {
+  if (!containsChineseCharacters(text) || usesChineseEdgeVoice(config)) {
+    return config;
+  }
+  return {
+    ...config,
+    voice: DEFAULT_EDGE_CHINESE_VOICE,
+    lang: DEFAULT_EDGE_CHINESE_LANG,
+  };
 }
 
 export function resolveTtsApiKey(
