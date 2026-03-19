@@ -330,8 +330,6 @@ importers:
 
   extensions/fal: {}
 
-  extensions/elevenlabs: {}
-
   extensions/feishu:
     dependencies:
       '@larksuiteoapi/node-sdk':
@@ -444,8 +442,6 @@ importers:
       openai:
         specifier: ^6.32.0
         version: 6.32.0(ws@8.19.0)(zod@4.3.6)
-
-  extensions/microsoft: {}
 
   extensions/microsoft: {}
 
