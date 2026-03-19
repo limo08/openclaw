@@ -49,3 +49,8 @@ Use this format when adding entries:
   npm: `@icesword760/openclaw-wechat`
   repo: `https://github.com/icesword0760/openclaw-wechat`
   install: `openclaw plugins install @icesword760/openclaw-wechat`
+
+- **Qmemory** — Graph memory context engine powered by SurrealDB. Replaces LCM with cross-session intelligence, salience scoring, temporal validity, dynamic relationship graphs, and background knowledge linking.
+  npm: `qmemory`
+  repo: `https://github.com/QusaiiSaleem/qmemory`
+  install: `openclaw plugins install qmemory`
