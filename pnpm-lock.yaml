@@ -240,6 +240,18 @@ importers:
         specifier: ^4.1.0
         version: 4.1.0(@opentelemetry/api@1.9.0)(@types/node@25.5.0)(@vitest/browser-playwright@4.1.0)(jsdom@29.0.0(@noble/hashes@2.0.1))(vite@8.0.0(@types/node@25.5.0)(esbuild@0.27.3)(jiti@2.6.1)(tsx@4.21.0)(yaml@2.8.2))
 
+  extensions/abb-robot-control:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.37
+      openclaw:
+        specifier: '*'
+        version: 2026.3.13(@discordjs/opus@0.10.0)(@napi-rs/canvas@0.1.95)(@types/express@5.0.6)(audio-decode@2.2.3)(node-llama-cpp@3.16.2(typescript@5.9.3))
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   extensions/acpx:
     dependencies:
       acpx:
@@ -455,6 +467,12 @@ importers:
 
   extensions/moonshot: {}
 
+  extensions/mistral: {}
+
+  extensions/modelstudio: {}
+
+  extensions/moonshot: {}
+
   extensions/msteams:
     dependencies:
       '@microsoft/agents-hosting':
@@ -489,6 +507,8 @@ importers:
   extensions/open-prose: {}
 
   extensions/openai: {}
+
+  extensions/openai-codex: {}
 
   extensions/opencode: {}
 
@@ -595,8 +615,6 @@ importers:
       '@whiskeysockets/baileys':
         specifier: 7.0.0-rc.9
         version: 7.0.0-rc.9(audio-decode@2.2.3)(jimp@1.6.0)(sharp@0.34.5)
-
-  extensions/xai: {}
 
   extensions/xiaomi: {}
 
