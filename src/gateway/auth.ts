@@ -121,16 +121,21 @@ export function isLocalDirectRequest(
   if (!req) {
     return false;
   }
-  const clientIp = resolveRequestClientIp(req, trustedProxies, allowRealIpFallback) ?? "";
-  if (!isLoopbackAddress(clientIp)) {
-    return false;
-  }
 
   const hasForwarded = Boolean(
     req.headers?.["x-forwarded-for"] ||
     req.headers?.["x-real-ip"] ||
     req.headers?.["x-forwarded-host"],
   );
+
+  if (!hasForwarded && isLoopbackAddress(req.socket?.remoteAddress)) {
+    return isLocalishHost(req.headers?.host);
+  }
+
+  const clientIp = resolveRequestClientIp(req, trustedProxies, allowRealIpFallback) ?? "";
+  if (!isLoopbackAddress(clientIp)) {
+    return false;
+  }
 
   const remoteIsTrustedProxy = isTrustedProxyAddress(req.socket?.remoteAddress, trustedProxies);
   return isLocalishHost(req.headers?.host) && (!hasForwarded || remoteIsTrustedProxy);
@@ -380,6 +385,10 @@ export async function authorizeGatewayConnect(
   );
 
   if (auth.mode === "trusted-proxy") {
+    if (localDirect) {
+      return { ok: true, method: "trusted-proxy", user: "local" };
+    }
+
     if (!auth.trustedProxy) {
       return { ok: false, reason: "trusted_proxy_config_missing" };
     }
