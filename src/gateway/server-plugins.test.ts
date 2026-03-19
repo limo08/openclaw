@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { PluginRegistry } from "../plugins/registry.js";
 import type { PluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
+import {
+  clearSharedPluginRuntimeOptions,
+  getSharedPluginRuntimeOptions,
+  setSharedPluginRuntimeOptions,
+} from "../plugins/runtime/shared-runtime-options.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import type { PluginDiagnostic } from "../plugins/types.js";
 import type { GatewayRequestContext, GatewayRequestOptions } from "./server-methods/types.js";
@@ -84,6 +89,24 @@ function getLastDispatchedClientScopes(): string[] {
   return Array.isArray(scopes) ? scopes : [];
 }
 
+function getLastDispatchedRequest():
+  | { method: string; params?: Record<string, unknown> }
+  | undefined {
+  const call = handleGatewayRequest.mock.calls.at(-1)?.[0];
+  const req = call?.req;
+  if (!req) {
+    return undefined;
+  }
+  const params =
+    "params" in req && req.params != null && typeof req.params === "object"
+      ? (req.params as Record<string, unknown>)
+      : undefined;
+  return {
+    method: req.method,
+    params,
+  };
+}
+
 async function importServerPluginsModule(): Promise<ServerPluginsModule> {
   return import("./server-plugins.js");
 }
@@ -125,6 +148,7 @@ beforeEach(async () => {
   handleGatewayRequest.mockImplementation(async (opts: HandleGatewayRequestOptions) => {
     switch (opts.req.method) {
       case "agent":
+      case "agent.enqueue":
         opts.respond(true, { runId: "run-1" });
         return;
       case "agent.wait":
@@ -145,6 +169,7 @@ beforeEach(async () => {
 afterEach(async () => {
   const runtimeModule = await import("../plugins/runtime/index.js");
   runtimeModule.clearGatewaySubagentRuntime();
+  clearSharedPluginRuntimeOptions();
   vi.resetModules();
 });
 
@@ -296,27 +321,6 @@ describe("loadGatewayPlugins", () => {
       provider: "anthropic",
       model: "claude-haiku-4-5",
     });
-  });
-
-  test("includes docs guidance when a plugin fallback override is not trusted", async () => {
-    const serverPlugins = await importServerPluginsModule();
-    const runtime = await createSubagentRuntime(serverPlugins);
-    serverPlugins.setFallbackGatewayContext(createTestContext("fallback-untrusted-plugin"));
-    const gatewayScopeModule = await import("../plugins/runtime/gateway-request-scope.js");
-
-    await expect(
-      gatewayScopeModule.withPluginRuntimePluginIdScope("voice-call", () =>
-        runtime.run({
-          sessionKey: "s-untrusted-override",
-          message: "use untrusted override",
-          provider: "anthropic",
-          model: "claude-haiku-4-5",
-          deliver: false,
-        }),
-      ),
-    ).rejects.toThrow(
-      'plugin "voice-call" is not trusted for fallback provider/model override requests. See https://docs.openclaw.ai/tools/plugin#runtime-helpers and search for: plugins.entries.<id>.subagent.allowModelOverride',
-    );
   });
 
   test("allows trusted fallback model-only overrides when the model ref is canonical", async () => {
@@ -524,6 +528,81 @@ describe("loadGatewayPlugins", () => {
     expect(log.error).not.toHaveBeenCalled();
     expect(log.info).not.toHaveBeenCalled();
   });
+
+  test("publishes shared runtime options for later plugin reloads", async () => {
+    const { loadGatewayPlugins } = await importServerPluginsModule();
+    loadOpenClawPlugins.mockReturnValue(createRegistry([]));
+
+    loadGatewayPlugins({
+      cfg: {},
+      workspaceDir: "/tmp",
+      log: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        debug: vi.fn(),
+      },
+      coreGatewayHandlers: {},
+      baseMethods: [],
+    });
+
+    expect(typeof getSharedPluginRuntimeOptions()?.subagent?.run).toBe("function");
+  });
+
+  test("rolls back shared runtime options when plugin loading fails", async () => {
+    const { loadGatewayPlugins } = await importServerPluginsModule();
+    loadOpenClawPlugins.mockImplementation(() => {
+      throw new Error("plugin load failed");
+    });
+
+    expect(() =>
+      loadGatewayPlugins({
+        cfg: {},
+        workspaceDir: "/tmp",
+        log: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+        },
+        coreGatewayHandlers: {},
+        baseMethods: [],
+      }),
+    ).toThrow("plugin load failed");
+
+    expect(getSharedPluginRuntimeOptions()).toBeUndefined();
+  });
+
+  test("restores previous shared runtime options when plugin loading fails", async () => {
+    const { loadGatewayPlugins } = await importServerPluginsModule();
+    const previousRuntime = {
+      subagent: {
+        run: vi.fn(),
+      },
+    } as unknown as NonNullable<ReturnType<typeof getSharedPluginRuntimeOptions>>;
+    setSharedPluginRuntimeOptions(previousRuntime);
+    loadOpenClawPlugins.mockImplementation(() => {
+      throw new Error("plugin load failed");
+    });
+
+    expect(() =>
+      loadGatewayPlugins({
+        cfg: {},
+        workspaceDir: "/tmp",
+        log: {
+          info: vi.fn(),
+          warn: vi.fn(),
+          error: vi.fn(),
+          debug: vi.fn(),
+        },
+        coreGatewayHandlers: {},
+        baseMethods: [],
+      }),
+    ).toThrow("plugin load failed");
+
+    expect(getSharedPluginRuntimeOptions()).toBe(previousRuntime);
+  });
+
   test("shares fallback context across module reloads for existing runtimes", async () => {
     const first = await importServerPluginsModule();
     const runtime = await createSubagentRuntime(first);
@@ -572,5 +651,55 @@ describe("loadGatewayPlugins", () => {
       | (GatewayRequestContext & { marker: string })
       | undefined;
     expect(dispatched?.marker).toBe("after-mutation");
+  });
+
+  test("mints idempotency keys for plugin subagent requests when absent", async () => {
+    const serverPlugins = await importServerPluginsModule();
+    const runtime = await createSubagentRuntime(serverPlugins);
+    serverPlugins.setFallbackGatewayContext(createTestContext("idempotency-generated"));
+
+    await runtime.run({ sessionKey: "s-run", message: "hello" });
+    const runRequest = getLastDispatchedRequest();
+    expect(runRequest?.method).toBe("agent");
+    expect(runRequest?.params).toMatchObject({
+      sessionKey: "s-run",
+      message: "hello",
+      deliver: false,
+    });
+    expect(runRequest?.params?.idempotencyKey).toEqual(
+      expect.stringMatching(/^plugin-subagent:agent:s-run:/),
+    );
+
+    await runtime.enqueue({ sessionKey: "s-enqueue", message: "queued" });
+    const enqueueRequest = getLastDispatchedRequest();
+    expect(enqueueRequest?.method).toBe("agent.enqueue");
+    expect(enqueueRequest?.params).toMatchObject({
+      sessionKey: "s-enqueue",
+      message: "queued",
+      deliver: false,
+    });
+    expect(enqueueRequest?.params?.idempotencyKey).toEqual(
+      expect.stringMatching(/^plugin-subagent:agent\.enqueue:s-enqueue:/),
+    );
+  });
+
+  test("preserves caller-provided idempotency keys for plugin subagent requests", async () => {
+    const serverPlugins = await importServerPluginsModule();
+    const runtime = await createSubagentRuntime(serverPlugins);
+    serverPlugins.setFallbackGatewayContext(createTestContext("idempotency-preserved"));
+
+    await runtime.run({
+      sessionKey: "s-run",
+      message: "hello",
+      idempotencyKey: "plugin-run-idem",
+    });
+    expect(getLastDispatchedRequest()?.params?.idempotencyKey).toBe("plugin-run-idem");
+
+    await runtime.enqueue({
+      sessionKey: "s-enqueue",
+      message: "queued",
+      idempotencyKey: "plugin-enqueue-idem",
+    });
+    expect(getLastDispatchedRequest()?.params?.idempotencyKey).toBe("plugin-enqueue-idem");
   });
 });

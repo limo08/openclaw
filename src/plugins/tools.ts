@@ -68,6 +68,7 @@ export function resolvePluginTools(params: {
         }
       : undefined,
     env,
+    inheritSharedRuntimeOptions: true,
     logger: createPluginLoaderLogger(log),
   });
 

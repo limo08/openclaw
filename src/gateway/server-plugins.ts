@@ -6,6 +6,11 @@ import { normalizePluginsConfig } from "../plugins/config-state.js";
 import { loadOpenClawPlugins } from "../plugins/loader.js";
 import { getPluginRuntimeGatewayRequestScope } from "../plugins/runtime/gateway-request-scope.js";
 import { setGatewaySubagentRuntime } from "../plugins/runtime/index.js";
+import {
+  clearSharedPluginRuntimeOptions,
+  getSharedPluginRuntimeOptions,
+  setSharedPluginRuntimeOptions,
+} from "../plugins/runtime/shared-runtime-options.js";
 import type { PluginRuntime } from "../plugins/runtime/types.js";
 import { ADMIN_SCOPE, WRITE_SCOPE } from "./method-scopes.js";
 import { GATEWAY_CLIENT_IDS, GATEWAY_CLIENT_MODES } from "./protocol/client-info.js";
@@ -155,10 +160,7 @@ function authorizeFallbackModelOverride(params: {
   if (!policy?.allowModelOverride) {
     return {
       allowed: false,
-      reason:
-        `plugin "${pluginId}" is not trusted for fallback provider/model override requests. ` +
-        "See https://docs.openclaw.ai/tools/plugin#runtime-helpers and search for: " +
-        "plugins.entries.<id>.subagent.allowModelOverride",
+      reason: `plugin "${pluginId}" is not trusted for fallback provider/model override requests.`,
     };
   }
   if (policy.allowAnyModel) {
@@ -292,6 +294,18 @@ async function dispatchGatewayMethod<T>(
   return result.payload as T;
 }
 
+function resolvePluginSubagentIdempotencyKey(params: {
+  idempotencyKey?: string;
+  sessionKey: string;
+  method: "agent" | "agent.enqueue";
+}): string {
+  const provided = typeof params.idempotencyKey === "string" ? params.idempotencyKey.trim() : "";
+  if (provided) {
+    return provided;
+  }
+  return `plugin-subagent:${params.method}:${params.sessionKey}:${randomUUID()}`;
+}
+
 function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
   const getSessionMessages: PluginRuntime["subagent"]["getSessionMessages"] = async (params) => {
     const payload = await dispatchGatewayMethod<{ messages?: unknown[] }>("sessions.get", {
@@ -308,7 +322,7 @@ function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
       const hasRequestScopeClient = Boolean(scope?.client);
       let allowOverride = hasRequestScopeClient && canClientUseModelOverride(scope?.client ?? null);
       let allowSyntheticModelOverride = false;
-      if (overrideRequested && !allowOverride && !hasRequestScopeClient) {
+      if (overrideRequested && !allowOverride) {
         const fallbackAuth = authorizeFallbackModelOverride({
           pluginId: scope?.pluginId,
           provider: params.provider,
@@ -318,10 +332,7 @@ function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
           throw new Error(fallbackAuth.reason);
         }
         allowOverride = true;
-        allowSyntheticModelOverride = true;
-      }
-      if (overrideRequested && !allowOverride) {
-        throw new Error("provider/model override is not authorized for this plugin subagent run.");
+        allowSyntheticModelOverride = !hasRequestScopeClient;
       }
       const payload = await dispatchGatewayMethod<{ runId?: string }>(
         "agent",
@@ -329,11 +340,15 @@ function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
           sessionKey: params.sessionKey,
           message: params.message,
           deliver: params.deliver ?? false,
+          idempotencyKey: resolvePluginSubagentIdempotencyKey({
+            idempotencyKey: params.idempotencyKey,
+            sessionKey: params.sessionKey,
+            method: "agent",
+          }),
           ...(allowOverride && params.provider && { provider: params.provider }),
           ...(allowOverride && params.model && { model: params.model }),
           ...(params.extraSystemPrompt && { extraSystemPrompt: params.extraSystemPrompt }),
           ...(params.lane && { lane: params.lane }),
-          ...(params.idempotencyKey && { idempotencyKey: params.idempotencyKey }),
         },
         {
           allowSyntheticModelOverride,
@@ -344,6 +359,63 @@ function createGatewaySubagentRuntime(): PluginRuntime["subagent"] {
         throw new Error("Gateway agent method returned an invalid runId.");
       }
       return { runId };
+    },
+    async enqueue(params) {
+      const scope = getPluginRuntimeGatewayRequestScope();
+      const overrideRequested = Boolean(params.provider || params.model);
+      const hasRequestScopeClient = Boolean(scope?.client);
+      let allowOverride = hasRequestScopeClient && canClientUseModelOverride(scope?.client ?? null);
+      let allowSyntheticModelOverride = false;
+      if (overrideRequested && !allowOverride) {
+        const fallbackAuth = authorizeFallbackModelOverride({
+          pluginId: scope?.pluginId,
+          provider: params.provider,
+          model: params.model,
+        });
+        if (!fallbackAuth.allowed) {
+          throw new Error(fallbackAuth.reason);
+        }
+        allowOverride = true;
+        allowSyntheticModelOverride = !hasRequestScopeClient;
+      }
+      const payload = await dispatchGatewayMethod<{ runId?: string }>(
+        "agent.enqueue",
+        {
+          sessionKey: params.sessionKey,
+          message: params.message,
+          deliver: params.deliver ?? false,
+          idempotencyKey: resolvePluginSubagentIdempotencyKey({
+            idempotencyKey: params.idempotencyKey,
+            sessionKey: params.sessionKey,
+            method: "agent.enqueue",
+          }),
+          ...(allowOverride && params.provider && { provider: params.provider }),
+          ...(allowOverride && params.model && { model: params.model }),
+          ...(params.extraSystemPrompt && { extraSystemPrompt: params.extraSystemPrompt }),
+          ...(params.lane && { lane: params.lane }),
+        },
+        {
+          allowSyntheticModelOverride,
+        },
+      );
+      const runId = payload?.runId;
+      if (typeof runId !== "string" || !runId) {
+        throw new Error("Gateway agent.enqueue method returned an invalid runId.");
+      }
+      return { runId };
+    },
+    async abort(params) {
+      const payload = await dispatchGatewayMethod<{ aborted?: boolean }>(
+        "agent.abort",
+        {
+          runId: params.runId,
+          ...(params.sessionKey && { sessionKey: params.sessionKey }),
+        },
+        {
+          syntheticScopes: [ADMIN_SCOPE],
+        },
+      );
+      return { aborted: payload?.aborted === true };
     },
     async waitForRun(params) {
       const payload = await dispatchGatewayMethod<{ status?: string; error?: string }>(
@@ -398,29 +470,42 @@ export function loadGatewayPlugins(params: {
   logDiagnostics?: boolean;
 }) {
   setPluginSubagentOverridePolicies(params.cfg);
-  // Set the process-global gateway subagent runtime BEFORE loading plugins.
+  // Set the process-global gateway subagent runtime before loading plugins.
   // Gateway-owned registries may already exist from schema loads, so the
   // gateway path opts those runtimes into late binding rather than changing
   // the default subagent behavior for every plugin runtime in the process.
-  const gatewaySubagent = createGatewaySubagentRuntime();
-  setGatewaySubagentRuntime(gatewaySubagent);
-
-  const pluginRegistry = loadOpenClawPlugins({
-    config: params.cfg,
-    workspaceDir: params.workspaceDir,
-    logger: {
-      info: (msg) => params.log.info(msg),
-      warn: (msg) => params.log.warn(msg),
-      error: (msg) => params.log.error(msg),
-      debug: (msg) => params.log.debug(msg),
-    },
-    coreGatewayHandlers: params.coreGatewayHandlers,
-    runtimeOptions: {
-      allowGatewaySubagentBinding: true,
-    },
-    preferSetupRuntimeForChannelPlugins: params.preferSetupRuntimeForChannelPlugins,
+  const gatewaySubagentRuntime = createGatewaySubagentRuntime();
+  setGatewaySubagentRuntime(gatewaySubagentRuntime);
+  const previousSharedRuntimeOptions = getSharedPluginRuntimeOptions();
+  setSharedPluginRuntimeOptions({
+    subagent: gatewaySubagentRuntime,
   });
-  primeConfiguredBindingRegistry({ cfg: params.cfg });
+  let pluginRegistry;
+  try {
+    primeConfiguredBindingRegistry({ cfg: params.cfg });
+    pluginRegistry = loadOpenClawPlugins({
+      config: params.cfg,
+      workspaceDir: params.workspaceDir,
+      logger: {
+        info: (msg) => params.log.info(msg),
+        warn: (msg) => params.log.warn(msg),
+        error: (msg) => params.log.error(msg),
+        debug: (msg) => params.log.debug(msg),
+      },
+      coreGatewayHandlers: params.coreGatewayHandlers,
+      runtimeOptions: {
+        allowGatewaySubagentBinding: true,
+      },
+      preferSetupRuntimeForChannelPlugins: params.preferSetupRuntimeForChannelPlugins,
+    });
+  } catch (error) {
+    if (previousSharedRuntimeOptions) {
+      setSharedPluginRuntimeOptions(previousSharedRuntimeOptions);
+    } else {
+      clearSharedPluginRuntimeOptions();
+    }
+    throw error;
+  }
   const pluginMethods = Object.keys(pluginRegistry.gatewayHandlers);
   const gatewayMethods = Array.from(new Set([...params.baseMethods, ...pluginMethods]));
   if ((params.logDiagnostics ?? true) && pluginRegistry.diagnostics.length > 0) {

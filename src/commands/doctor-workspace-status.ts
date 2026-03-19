@@ -66,10 +66,7 @@ export function noteWorkspaceStatus(cfg: OpenClawConfig) {
   const compatibilityWarnings = buildPluginCompatibilityWarnings({
     config: cfg,
     workspaceDir,
-    report: {
-      workspaceDir,
-      ...pluginRegistry,
-    },
+    report: pluginRegistry,
   });
   if (compatibilityWarnings.length > 0) {
     note(compatibilityWarnings.map((line) => `- ${line}`).join("\n"), "Plugin compatibility");
