@@ -376,6 +376,7 @@ export function createOpenClawCodingTools(options?: {
           bridge: sandboxFsBridge!,
           modelContextWindowTokens: options?.modelContextWindowTokens,
           imageSanitization,
+          containerWorkdir: sandbox?.containerWorkdir,
         });
         return [
           workspaceOnly
