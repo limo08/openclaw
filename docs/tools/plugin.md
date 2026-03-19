@@ -322,16 +322,6 @@ Plugins export either:
 - `registerContextEngine`
 - `registerService`
 
+See [Model Provider Plugins](/plugins/model-providers) for how to register providers with capabilities for chat, embeddings, TTS, speech, and media understanding.
+
 See [Plugin manifest](/plugins/manifest) for the manifest file format.
-
-## Further reading
-
-- [Plugin architecture and internals](/plugins/architecture) -- capability model,
-  ownership model, contracts, load pipeline, runtime helpers, and developer API
-  reference
-- [Building extensions](/plugins/building-extensions)
-- [Plugin bundles](/plugins/bundles)
-- [Plugin manifest](/plugins/manifest)
-- [Plugin agent tools](/plugins/agent-tools)
-- [Capability Cookbook](/tools/capability-cookbook)
-- [Community plugins](/plugins/community)

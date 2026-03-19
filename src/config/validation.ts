@@ -1,5 +1,6 @@
 import path from "node:path";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { normalizeProviderId } from "../agents/model-selection.js";
 import { CHANNEL_IDS, normalizeChatChannelId } from "../channels/registry.js";
 import {
   normalizePluginsConfig,
@@ -7,6 +8,7 @@ import {
   resolveMemorySlotDecision,
 } from "../plugins/config-state.js";
 import { loadPluginManifestRegistry } from "../plugins/manifest-registry.js";
+import { getActivePluginRegistry } from "../plugins/runtime.js";
 import { validateJsonSchemaValue } from "../plugins/schema-validator.js";
 import {
   hasAvatarUriScheme,
@@ -465,9 +467,129 @@ function validateConfigObjectWithPluginsBase(
     config.agents?.defaults?.heartbeat?.target,
     "agents.defaults.heartbeat.target",
   );
+
+  const knownMemoryProviders = new Set([
+    "openai",
+    "local",
+    "gemini",
+    "voyage",
+    "mistral",
+    "ollama",
+    "auto",
+  ]);
+  const knownMemoryFallbacks = new Set([...knownMemoryProviders].filter((p) => p !== "auto"));
+  knownMemoryFallbacks.add("none");
+
+  // Helper to detect likely typos (edit distance of 1-2 characters)
+  function isLikelyTypo(input: string, known: string): boolean {
+    const inputLower = input.toLowerCase();
+    const knownLower = known.toLowerCase();
+    // Exact match
+    if (inputLower === knownLower) {
+      return false;
+    }
+    // Check if very similar (edit distance <= 2)
+    if (Math.abs(inputLower.length - knownLower.length) > 2) {
+      return false;
+    }
+    // Count matching characters at start
+    let matches = 0;
+    const maxCompare = Math.min(inputLower.length, knownLower.length);
+    for (let i = 0; i < maxCompare; i++) {
+      if (inputLower[i] === knownLower[i]) {
+        matches++;
+      }
+    }
+    // If first 3+ characters match and length is close, likely a typo
+    return matches >= 3 && Math.abs(inputLower.length - knownLower.length) <= 2;
+  }
+
+  const validateMemorySearchProvider = (provider: string | undefined, path: string) => {
+    if (typeof provider !== "string") {
+      return;
+    }
+    // Validate against known built-in providers
+    if (knownMemoryProviders.has(provider)) {
+      return;
+    }
+    // Check for typos of known providers - reject obvious misspellings
+    const isTypo = [...knownMemoryProviders].some(
+      (known) => known !== "auto" && isLikelyTypo(provider, known),
+    );
+    if (isTypo) {
+      issues.push({ path, message: `unknown memorySearch provider: ${provider}` });
+      return;
+    }
+    // Check if this is a loaded plugin embedding provider
+    const pluginRegistry = getActivePluginRegistry();
+    const isKnownPlugin = pluginRegistry?.providers.some(
+      (entry) =>
+        normalizeProviderId(entry.provider.id) === normalizeProviderId(provider) &&
+        entry.provider.routingCapabilities?.includes("embedding"),
+    );
+    if (isKnownPlugin) {
+      return; // Known plugin embedding provider - validate at runtime
+    }
+    // Reject unknown providers at config time
+    issues.push({ path, message: `unknown memorySearch provider: ${provider}` });
+  };
+
+  const validateMemorySearchFallback = (fallback: string | undefined, path: string) => {
+    if (typeof fallback !== "string") {
+      return;
+    }
+    // Validate against known built-in fallbacks
+    if (knownMemoryFallbacks.has(fallback)) {
+      return;
+    }
+    // Check for typos of known fallbacks
+    const isTypo = [...knownMemoryFallbacks].some((known) => isLikelyTypo(fallback, known));
+    if (isTypo) {
+      issues.push({ path, message: `unknown memorySearch fallback: ${fallback}` });
+      return;
+    }
+    // Check if this is a loaded plugin embedding provider
+    const pluginRegistry = getActivePluginRegistry();
+    const isKnownPlugin = pluginRegistry?.providers.some(
+      (entry) =>
+        normalizeProviderId(entry.provider.id) === normalizeProviderId(fallback) &&
+        entry.provider.routingCapabilities?.includes("embedding"),
+    );
+    if (isKnownPlugin) {
+      return; // Known plugin embedding provider - validate at runtime
+    }
+    // Reject unknown fallbacks at config time
+    issues.push({ path, message: `unknown memorySearch fallback: ${fallback}` });
+  };
+
+  const defaultMemorySearch = config.agents?.defaults?.memorySearch;
+  if (defaultMemorySearch) {
+    // Plugin provider validation happens at runtime - skip at config time
+    validateMemorySearchProvider(
+      defaultMemorySearch.provider,
+      "agents.defaults.memorySearch.provider",
+    );
+    validateMemorySearchFallback(
+      defaultMemorySearch.fallback,
+      "agents.defaults.memorySearch.fallback",
+    );
+  }
+
   if (Array.isArray(config.agents?.list)) {
     for (const [index, entry] of config.agents.list.entries()) {
       validateHeartbeatTarget(entry?.heartbeat?.target, `agents.list.${index}.heartbeat.target`);
+      const memorySearch = entry?.memorySearch;
+      if (memorySearch) {
+        // Plugin provider validation happens at runtime - skip at config time
+        validateMemorySearchProvider(
+          memorySearch.provider,
+          `agents.list.${index}.memorySearch.provider`,
+        );
+        validateMemorySearchFallback(
+          memorySearch.fallback,
+          `agents.list.${index}.memorySearch.fallback`,
+        );
+      }
     }
   }
 

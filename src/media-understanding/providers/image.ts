@@ -13,7 +13,6 @@ import type {
   ImageDescriptionRequest,
   ImageDescriptionResult,
   ImagesDescriptionRequest,
-  ImagesDescriptionResult,
 } from "../types.js";
 
 let piModelDiscoveryRuntimePromise: Promise<
@@ -96,7 +95,7 @@ async function describeImagesWithMinimax(params: {
   modelBaseUrl?: string;
   prompt: string;
   images: Array<{ buffer: Buffer; mime?: string }>;
-}): Promise<ImagesDescriptionResult> {
+}): Promise<ImageDescriptionResult> {
   const responses: string[] = [];
   for (const [index, image] of params.images.entries()) {
     const prompt =
@@ -154,7 +153,7 @@ async function resolveMinimaxVlmFallbackRuntime(params: {
 
 export async function describeImagesWithModel(
   params: ImagesDescriptionRequest,
-): Promise<ImagesDescriptionResult> {
+): Promise<ImageDescriptionResult> {
   const prompt = params.prompt ?? "Describe the image.";
   let apiKey: string;
   let model: Model<Api> | undefined;

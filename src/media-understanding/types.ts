@@ -125,9 +125,24 @@ export type ImageDescriptionResult = {
   model?: string;
 };
 
-export type ImagesDescriptionResult = {
+export type TextToSpeechRequest = {
   text: string;
   model?: string;
+  modelId?: string;
+  voice?: string;
+  voiceId?: string;
+  apiKey: string;
+  baseUrl?: string;
+  headers?: Record<string, string>;
+  timeoutMs: number;
+  fetchFn?: typeof fetch;
+  telephony?: boolean;
+};
+
+export type TextToSpeechResult = {
+  audio: Buffer;
+  mime: string;
+  sampleRate?: number;
 };
 
 export type MediaUnderstandingProvider = {
@@ -136,5 +151,5 @@ export type MediaUnderstandingProvider = {
   transcribeAudio?: (req: AudioTranscriptionRequest) => Promise<AudioTranscriptionResult>;
   describeVideo?: (req: VideoDescriptionRequest) => Promise<VideoDescriptionResult>;
   describeImage?: (req: ImageDescriptionRequest) => Promise<ImageDescriptionResult>;
-  describeImages?: (req: ImagesDescriptionRequest) => Promise<ImagesDescriptionResult>;
+  describeImages?: (req: ImagesDescriptionRequest) => Promise<ImageDescriptionResult>;
 };
