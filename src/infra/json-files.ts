@@ -2,8 +2,20 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 
+/** Maximum file size (10 MB) for readJsonFile to guard against unbounded reads. */
+const MAX_JSON_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+
 export async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {
+    // Check file size before reading to prevent unbounded memory allocation
+    // from unexpectedly large or corrupted JSON files.
+    const stat = await fs.stat(filePath).catch(() => null);
+    if (!stat) {
+      return null;
+    }
+    if (stat.size > MAX_JSON_FILE_SIZE_BYTES) {
+      return null;
+    }
     const raw = await fs.readFile(filePath, "utf8");
     return JSON.parse(raw) as T;
   } catch {
@@ -36,13 +48,19 @@ export async function writeTextAtomic(
   if (typeof options?.ensureDirMode === "number") {
     mkdirOptions.mode = options.ensureDirMode;
   }
-  await fs.mkdir(path.dirname(filePath), mkdirOptions);
+  const dir = path.dirname(filePath);
+  await fs.mkdir(dir, mkdirOptions);
   // On macOS and some Linux configurations, fs.mkdir({ recursive: true }) may
   // ignore the mode option.  Explicitly chmod the directory afterward to ensure
   // it carries the requested permissions regardless of platform behavior.
+  // Use lstat to verify the directory is not a symlink before chmod to prevent
+  // symlink-following permission changes on attacker-controlled paths.
   if (typeof options?.ensureDirMode === "number") {
     try {
-      await fs.chmod(path.dirname(filePath), options.ensureDirMode);
+      const dirStat = await fs.lstat(dir);
+      if (dirStat.isDirectory()) {
+        await fs.chmod(dir, options.ensureDirMode);
+      }
     } catch {
       // best-effort; ignore on platforms without chmod
     }
@@ -55,13 +73,22 @@ export async function writeTextAtomic(
     // umask to the open(2) call (e.g. some Linux configurations).
     await fs.writeFile(tmp, payload, { encoding: "utf8", mode });
     try {
-      await fs.chmod(tmp, mode);
+      // Use lstat to verify the temp file is not a symlink before chmod.
+      const tmpStat = await fs.lstat(tmp);
+      if (tmpStat.isFile()) {
+        await fs.chmod(tmp, mode);
+      }
     } catch {
       // best-effort; ignore on platforms without chmod
     }
     await fs.rename(tmp, filePath);
+    // Post-rename chmod is best-effort only — rename(2) is the security boundary.
+    // Verify with lstat to avoid following symlinks at the destination.
     try {
-      await fs.chmod(filePath, mode);
+      const finalStat = await fs.lstat(filePath);
+      if (finalStat.isFile()) {
+        await fs.chmod(filePath, mode);
+      }
     } catch {
       // best-effort; ignore on platforms without chmod
     }
