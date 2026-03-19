@@ -290,7 +290,7 @@ fun OnboardingFlow(viewModel: MainViewModel, modifier: Modifier = Modifier) {
       mutableStateOf(
         smsAvailable &&
           (
-            isPermissionGranted(context, Manifest.permission.SEND_SMS) ||
+            isPermissionGranted(context, Manifest.permission.SEND_SMS) &&
               isPermissionGranted(context, Manifest.permission.READ_SMS)
           ),
       )
