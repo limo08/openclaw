@@ -190,9 +190,10 @@ Notes:
 
 ## Browserless (hosted remote CDP)
 
-[Browserless](https://browserless.io) is a hosted Chromium service that exposes
-CDP endpoints over HTTPS. You can point an OpenClaw browser profile at a
-Browserless region endpoint and authenticate with your API key.
+[Browserless](https://browserless.io) is a hosted Chromium service whose CDP
+endpoint requires a direct WebSocket (`wss://`) connection. Point an OpenClaw
+browser profile at a Browserless region endpoint and authenticate with your API
+key.
 
 Example:
 
@@ -205,7 +206,7 @@ Example:
     remoteCdpHandshakeTimeoutMs: 4000,
     profiles: {
       browserless: {
-        cdpUrl: "https://production-sfo.browserless.io?token=<BROWSERLESS_API_KEY>",
+        cdpUrl: "wss://production-sfo.browserless.io?token=<BROWSERLESS_API_KEY>",
         color: "#00AA00",
       },
     },
@@ -218,16 +219,19 @@ Notes:
 - Replace `<BROWSERLESS_API_KEY>` with your real Browserless token.
 - Choose the region endpoint that matches your Browserless account (see their docs).
 
+> Browserless CDP endpoints speak WebSocket only, so keep the `cdpUrl` on `wss://` — `https://` will only reach their REST API and the browser tool will fail to connect.
+
 ## Direct WebSocket CDP providers
 
 Some hosted browser services expose a **direct WebSocket** endpoint rather than
 the standard HTTP-based CDP discovery (`/json/version`). OpenClaw supports both:
 
-- **HTTP(S) endpoints** (e.g. Browserless) — OpenClaw calls `/json/version` to
-  discover the WebSocket debugger URL, then connects.
+- **HTTP(S) endpoints** — OpenClaw calls `/json/version` to discover the
+  WebSocket debugger URL, then connects.
 - **WebSocket endpoints** (`ws://` / `wss://`) — OpenClaw connects directly,
   skipping `/json/version`. Use this for services like
-  [Browserbase](https://www.browserbase.com) or any provider that hands you a
+  [Browserless](https://browserless.io),
+  [Browserbase](https://www.browserbase.com), or any provider that hands you a
   WebSocket URL.
 
 ### Browserbase
